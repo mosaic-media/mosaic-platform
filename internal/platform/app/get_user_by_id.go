@@ -5,10 +5,11 @@ import (
 
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
+	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
 )
 
 // ActionUserRead is the policy action evaluated for GetUserByID.
-const ActionUserRead Action = "user.read"
+const ActionUserRead policy.Action = "user.read"
 
 // GetUserByIDQuery reads a single user by ID.
 type GetUserByIDQuery struct {
@@ -47,8 +48,8 @@ func (s *Service) GetUserByID(ctx context.Context, query GetUserByIDQuery) (GetU
 	}
 
 	// 3. authorize action through policy.
-	resource := Resource{Type: "user", ID: string(query.UserID)}
-	if err := s.authorize(ctx, Subject{UserID: callerID}, ActionUserRead, resource); err != nil {
+	resource := policy.Resource{Type: "user", ID: string(query.UserID)}
+	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionUserRead, resource, policy.PolicyContext{}); err != nil {
 		return GetUserByIDResult{}, err
 	}
 

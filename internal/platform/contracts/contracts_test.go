@@ -26,6 +26,7 @@ func (mockTx) Sessions() contracts.SessionStore       { return mockSessionStore{
 func (mockTx) Permissions() contracts.PermissionStore { return mockPermissionStore{} }
 func (mockTx) Config() contracts.ConfigStore          { return mockConfigStore{} }
 func (mockTx) Outbox() contracts.EventOutbox          { return mockEventOutbox{} }
+func (mockTx) Credentials() contracts.CredentialStore { return mockCredentialStore{} }
 
 type mockUserStore struct{}
 
@@ -85,6 +86,32 @@ func (mockConfigStore) Latest(ctx context.Context) (domain.ConfigVersion, error)
 
 func (mockConfigStore) FindByID(ctx context.Context, id domain.ConfigVersionID) (domain.ConfigVersion, error) {
 	return domain.ConfigVersion{}, nil
+}
+
+type mockCredentialStore struct{}
+
+func (mockCredentialStore) SavePassword(ctx context.Context, credential domain.PasswordCredential) error {
+	return nil
+}
+
+func (mockCredentialStore) FindPassword(ctx context.Context, userID domain.UserID) (domain.PasswordCredential, error) {
+	return domain.PasswordCredential{}, nil
+}
+
+func (mockCredentialStore) SavePasskey(ctx context.Context, credential domain.PasskeyCredential) error {
+	return nil
+}
+
+func (mockCredentialStore) ListPasskeys(ctx context.Context, userID domain.UserID) ([]domain.PasskeyCredential, error) {
+	return nil, nil
+}
+
+func (mockCredentialStore) SaveRecoveryFactor(ctx context.Context, factor domain.RecoveryFactor) error {
+	return nil
+}
+
+func (mockCredentialStore) ConsumeRecoveryFactor(ctx context.Context, userID domain.UserID, codeHash string) (domain.RecoveryFactor, error) {
+	return domain.RecoveryFactor{}, nil
 }
 
 type mockEventOutbox struct{}
@@ -149,8 +176,9 @@ var (
 	_ contracts.EventOutbox    = mockEventOutbox{}
 	_ contracts.EventPublisher = mockEventPublisher{}
 	_ contracts.Subscription   = mockSubscription{}
-	_ contracts.SecretBroker   = mockSecretBroker{}
-	_ contracts.Clock          = mockClock{}
-	_ contracts.IDGenerator    = mockIDGenerator{}
-	_ contracts.HealthProbe    = mockHealthProbe{}
+	_ contracts.SecretBroker     = mockSecretBroker{}
+	_ contracts.Clock            = mockClock{}
+	_ contracts.IDGenerator      = mockIDGenerator{}
+	_ contracts.HealthProbe      = mockHealthProbe{}
+	_ contracts.CredentialStore  = mockCredentialStore{}
 )

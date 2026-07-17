@@ -19,3 +19,7 @@ type ConfigVersionID ID
 
 // EventID identifies an Event.
 type EventID ID
+
+// DeviceID identifies the registered device or browser a Session was
+// issued to (MEG-015 §07 — Session Model).
+type DeviceID ID

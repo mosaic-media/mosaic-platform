@@ -17,4 +17,5 @@ type Tx interface {
 	Permissions() PermissionStore
 	Config() ConfigStore
 	Outbox() EventOutbox
+	Credentials() CredentialStore
 }

@@ -5,13 +5,15 @@ import (
 
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
+	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
 )
 
 // ActionUserCreate is the policy action evaluated for CreateLocalUser.
-const ActionUserCreate Action = "user.create"
+const ActionUserCreate policy.Action = "user.create"
 
-// CreateLocalUserCommand provisions a local Platform user account. It is
-// an administrative operation (MEG-009 §04 — Administrative Operations):
+// CreateLocalUserCommand provisions a local Platform user account with a
+// password credential (MEG-015 §07 — Local Identity Scope). It is an
+// administrative operation (MEG-009 §04 — Administrative Operations):
 // CallerSessionID must belong to an already-authenticated, authorized
 // caller, not the new user being created.
 type CreateLocalUserCommand struct {
@@ -19,6 +21,7 @@ type CreateLocalUserCommand struct {
 	Username        string
 	Email           string
 	DisplayName     string
+	Password        string
 }
 
 // CreateLocalUserResult is the Platform result type returned once the new
@@ -36,6 +39,9 @@ func validateCreateLocalUserCommand(cmd CreateLocalUserCommand) error {
 	}
 	if cmd.Email == "" {
 		return contracts.NewError(contracts.InvalidArgument, "email is required")
+	}
+	if cmd.Password == "" {
+		return contracts.NewError(contracts.InvalidArgument, "password is required")
 	}
 	return nil
 }
@@ -57,7 +63,8 @@ func (s *Service) CreateLocalUser(ctx context.Context, cmd CreateLocalUserComman
 	}
 
 	// 3. authorize action through policy.
-	if err := s.authorize(ctx, Subject{UserID: callerID}, ActionUserCreate, Resource{Type: "user"}); err != nil {
+	subject := policy.Subject{UserID: callerID}
+	if err := s.authorize(ctx, subject, ActionUserCreate, policy.Resource{Type: "user"}, policy.PolicyContext{}); err != nil {
 		return CreateLocalUserResult{}, err
 	}
 
@@ -88,6 +95,19 @@ func (s *Service) CreateLocalUser(ctx context.Context, cmd CreateLocalUserComman
 		// 7. persist state and outbox events in the same transaction.
 		created, err := tx.Users().Create(ctx, newUser)
 		if err != nil {
+			return err
+		}
+
+		hash, err := s.passwordVerifier.Hash(cmd.Password)
+		if err != nil {
+			return contracts.WrapError(contracts.Internal, "hash password", err)
+		}
+		credential := domain.PasswordCredential{
+			UserID:    created.ID,
+			Hash:      hash,
+			UpdatedAt: now,
+		}
+		if err := tx.Credentials().SavePassword(ctx, credential); err != nil {
 			return err
 		}
 
