@@ -43,6 +43,7 @@ MEG-015 §02 — Repository Layout describes a two-tier model: `internal/platfor
 
 ## Workflow
 
+- Develop and commit directly on `main`. This repository does not use feature branches for Platform implementation work.
 - Build one slice at a time, in the order defined by MEG-015 §12 — Build Sequence. Do not start a slice whose prerequisites haven't landed.
 - Each slice must pass its MEG-015 §11 test gate before the next dependent slice begins.
 - Run `go build ./...` and `go test ./...` before declaring any slice done.
