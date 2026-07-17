@@ -9,6 +9,7 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/app"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
+	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
 )
 
 // trace records the order in which contract and policy boundary calls
@@ -31,6 +32,16 @@ func (t *trace) snapshot() []string {
 	return append([]string(nil), t.steps...)
 }
 
+// fakeDBSnapshot is a point-in-time copy of every mutable fakeDB field, so
+// fakeUnitOfWork can restore it on rollback.
+type fakeDBSnapshot struct {
+	users     map[domain.UserID]domain.User
+	usernames map[string]domain.UserID
+	sessions  map[domain.SessionID]domain.Session
+	passwords map[domain.UserID]domain.PasswordCredential
+	outbox    []domain.OutboxEvent
+}
+
 // fakeDB is the shared backing store behind every fake contract in this
 // package. The same data is reachable directly (for authentication and
 // query reads) and through a fakeTx (for the command write path), mirroring
@@ -40,7 +51,13 @@ type fakeDB struct {
 	users     map[domain.UserID]domain.User
 	usernames map[string]domain.UserID
 	sessions  map[domain.SessionID]domain.Session
+	passwords map[domain.UserID]domain.PasswordCredential
 	outbox    []domain.OutboxEvent
+	// roles is never written by any Service command in this slice — it is
+	// a fixture the tests seed directly, standing in for the "admin-
+	// controlled permission assignment" MEG-015 §07 lists as in scope but
+	// this slice does not build a command for.
+	roles map[domain.UserID][]domain.Role
 }
 
 func newFakeDB() *fakeDB {
@@ -48,6 +65,8 @@ func newFakeDB() *fakeDB {
 		users:     make(map[domain.UserID]domain.User),
 		usernames: make(map[string]domain.UserID),
 		sessions:  make(map[domain.SessionID]domain.Session),
+		passwords: make(map[domain.UserID]domain.PasswordCredential),
+		roles:     make(map[domain.UserID][]domain.Role),
 	}
 }
 
@@ -55,10 +74,13 @@ func (db *fakeDB) seedSession(id domain.SessionID, userID domain.UserID, now tim
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	db.sessions[id] = domain.Session{
-		ID:        id,
-		UserID:    userID,
-		IssuedAt:  now.Add(-time.Hour),
-		ExpiresAt: now.Add(time.Hour),
+		ID:           id,
+		UserID:       userID,
+		DeviceID:     "device-seed",
+		IssuedAt:     now.Add(-time.Hour),
+		LastSeenAt:   now.Add(-time.Hour),
+		ExpiresAt:    now.Add(time.Hour),
+		AuthStrength: domain.AuthStrengthPassword,
 	}
 }
 
@@ -69,9 +91,32 @@ func (db *fakeDB) seedUser(user domain.User) {
 	db.usernames[user.Username] = user.ID
 }
 
-func (db *fakeDB) snapshot() (map[domain.UserID]domain.User, map[string]domain.UserID, []domain.OutboxEvent) {
+func (db *fakeDB) seedRole(userID domain.UserID, role domain.Role) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	db.roles[userID] = append(db.roles[userID], role)
+}
+
+// adminRole grants every action this slice's commands check. Tests that
+// need an authorized caller seed it for that caller's user ID; tests
+// proving the policy gate simply don't.
+func adminRole() domain.Role {
+	return domain.Role{
+		ID:   "role-admin",
+		Name: "Administrator",
+		Permissions: []domain.Permission{
+			domain.Permission(app.ActionUserCreate),
+			domain.Permission(app.ActionUserRead),
+			domain.Permission(app.ActionSessionCreate),
+			domain.Permission(app.ActionSessionRevoke),
+		},
+	}
+}
+
+func (db *fakeDB) snapshot() fakeDBSnapshot {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
 	users := make(map[domain.UserID]domain.User, len(db.users))
 	for k, v := range db.users {
 		users[k] = v
@@ -80,16 +125,33 @@ func (db *fakeDB) snapshot() (map[domain.UserID]domain.User, map[string]domain.U
 	for k, v := range db.usernames {
 		usernames[k] = v
 	}
+	sessions := make(map[domain.SessionID]domain.Session, len(db.sessions))
+	for k, v := range db.sessions {
+		sessions[k] = v
+	}
+	passwords := make(map[domain.UserID]domain.PasswordCredential, len(db.passwords))
+	for k, v := range db.passwords {
+		passwords[k] = v
+	}
 	outbox := append([]domain.OutboxEvent(nil), db.outbox...)
-	return users, usernames, outbox
+
+	return fakeDBSnapshot{
+		users:     users,
+		usernames: usernames,
+		sessions:  sessions,
+		passwords: passwords,
+		outbox:    outbox,
+	}
 }
 
-func (db *fakeDB) restore(users map[domain.UserID]domain.User, usernames map[string]domain.UserID, outbox []domain.OutboxEvent) {
+func (db *fakeDB) restore(snap fakeDBSnapshot) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	db.users = users
-	db.usernames = usernames
-	db.outbox = outbox
+	db.users = snap.users
+	db.usernames = snap.usernames
+	db.sessions = snap.sessions
+	db.passwords = snap.passwords
+	db.outbox = snap.outbox
 }
 
 // fakeUserStore implements contracts.UserStore. It deliberately does not
@@ -178,23 +240,79 @@ func (s *fakeSessionStore) Revoke(_ context.Context, id domain.SessionID) error 
 	return nil
 }
 
-// fakePermissionStore and fakeConfigStore satisfy the remaining contracts.Tx
-// stores. Neither command or query in this slice uses them; they exist
-// only because fakeTx must implement the full contracts.Tx interface.
-type fakePermissionStore struct{}
+// fakeCredentialStore implements contracts.CredentialStore. Only the
+// password methods this slice's commands use are exercised by tests;
+// passkey and recovery methods exist to satisfy the interface shape
+// (MEG-015 §07 lists them as "modeled," not exercised, this slice).
+type fakeCredentialStore struct {
+	db    *fakeDB
+	trace *trace
+}
 
-func (fakePermissionStore) RolesForUser(context.Context, domain.UserID) ([]domain.Role, error) {
+func (s *fakeCredentialStore) SavePassword(_ context.Context, credential domain.PasswordCredential) error {
+	s.trace.record("credentials.save_password")
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	s.db.passwords[credential.UserID] = credential
+	return nil
+}
+
+func (s *fakeCredentialStore) FindPassword(_ context.Context, userID domain.UserID) (domain.PasswordCredential, error) {
+	s.trace.record("credentials.find_password")
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	credential, ok := s.db.passwords[userID]
+	if !ok {
+		return domain.PasswordCredential{}, contracts.NewError(contracts.NotFound, "password credential not found")
+	}
+	return credential, nil
+}
+
+func (s *fakeCredentialStore) SavePasskey(context.Context, domain.PasskeyCredential) error {
+	return nil
+}
+
+func (s *fakeCredentialStore) ListPasskeys(context.Context, domain.UserID) ([]domain.PasskeyCredential, error) {
 	return nil, nil
 }
 
-func (fakePermissionStore) GrantsForUser(context.Context, domain.UserID) ([]domain.Grant, error) {
+func (s *fakeCredentialStore) SaveRecoveryFactor(context.Context, domain.RecoveryFactor) error {
+	return nil
+}
+
+func (s *fakeCredentialStore) ConsumeRecoveryFactor(context.Context, domain.UserID, string) (domain.RecoveryFactor, error) {
+	return domain.RecoveryFactor{}, contracts.NewError(contracts.NotFound, "recovery factor not found")
+}
+
+// fakePermissionStore implements contracts.PermissionStore by returning
+// whatever roles the test seeded for a user — the real ABAC-shaped
+// policy.Engine (not a hardcoded stub) drives every allow/deny decision
+// in these tests. RolesForUser is traced because it is the only
+// observable signature of a real policy evaluation happening: the
+// production policy.Engine itself does not record to trace.
+type fakePermissionStore struct {
+	db    *fakeDB
+	trace *trace
+}
+
+func (s fakePermissionStore) RolesForUser(_ context.Context, userID domain.UserID) ([]domain.Role, error) {
+	s.trace.record("permissions.roles_for_user")
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	return append([]domain.Role(nil), s.db.roles[userID]...), nil
+}
+
+func (s fakePermissionStore) GrantsForUser(context.Context, domain.UserID) ([]domain.Grant, error) {
 	return nil, nil
 }
 
-func (fakePermissionStore) AttributesForUser(context.Context, domain.UserID) ([]domain.Attribute, error) {
+func (s fakePermissionStore) AttributesForUser(context.Context, domain.UserID) ([]domain.Attribute, error) {
 	return nil, nil
 }
 
+// fakeConfigStore satisfies the remaining contracts.Tx store. No command
+// or query in this slice uses it; it exists only because fakeTx must
+// implement the full contracts.Tx interface.
 type fakeConfigStore struct{}
 
 func (fakeConfigStore) Save(_ context.Context, version domain.ConfigVersion) (domain.ConfigVersion, error) {
@@ -209,14 +327,16 @@ func (fakeConfigStore) FindByID(context.Context, domain.ConfigVersionID) (domain
 	return domain.ConfigVersion{}, contracts.NewError(contracts.NotFound, "config version not found")
 }
 
-// fakeEventOutbox implements contracts.EventOutbox.
+// fakeEventOutbox implements contracts.EventOutbox. Trace entries include
+// the event type so tests can assert which audit event committed, not
+// merely that some event did.
 type fakeEventOutbox struct {
 	db    *fakeDB
 	trace *trace
 }
 
 func (o *fakeEventOutbox) Append(_ context.Context, event domain.OutboxEvent) error {
-	o.trace.record("outbox.append")
+	o.trace.record("outbox.append:" + event.Type)
 	o.db.mu.Lock()
 	defer o.db.mu.Unlock()
 	o.db.outbox = append(o.db.outbox, event)
@@ -233,6 +353,32 @@ func (o *fakeEventOutbox) MarkPublished(context.Context, domain.EventID) error {
 	return nil
 }
 
+// fakeEventPublisher implements contracts.EventPublisher. It is used for
+// audit events with no state change to bind atomicity to (authentication
+// failures, authorization denials) — the real, transactional writes go
+// through fakeEventOutbox instead.
+type fakeEventPublisher struct {
+	trace *trace
+	mu    sync.Mutex
+	sent  []domain.Event
+}
+
+func (p *fakeEventPublisher) Publish(_ context.Context, event domain.Event) error {
+	p.trace.record("events.publish:" + event.Type)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sent = append(p.sent, event)
+	return nil
+}
+
+func (p *fakeEventPublisher) Subscribe(string, contracts.EventHandler) (contracts.Subscription, error) {
+	return fakeSubscription{}, nil
+}
+
+type fakeSubscription struct{}
+
+func (fakeSubscription) Unsubscribe() {}
+
 // fakeTx implements contracts.Tx. Every store it returns operates directly
 // on the shared fakeDB, so writes made during WithinTx are immediately
 // visible to fakeUnitOfWork's snapshot/restore bookkeeping.
@@ -241,16 +387,21 @@ type fakeTx struct {
 	trace *trace
 }
 
-func (tx *fakeTx) Users() contracts.UserStore       { return &fakeUserStore{db: tx.db, trace: tx.trace} }
-func (tx *fakeTx) Sessions() contracts.SessionStore { return &fakeSessionStore{db: tx.db, trace: tx.trace} }
-func (tx *fakeTx) Permissions() contracts.PermissionStore { return fakePermissionStore{} }
+func (tx *fakeTx) Users() contracts.UserStore             { return &fakeUserStore{db: tx.db, trace: tx.trace} }
+func (tx *fakeTx) Sessions() contracts.SessionStore       { return &fakeSessionStore{db: tx.db, trace: tx.trace} }
+func (tx *fakeTx) Permissions() contracts.PermissionStore {
+	return fakePermissionStore{db: tx.db, trace: tx.trace}
+}
 func (tx *fakeTx) Config() contracts.ConfigStore           { return fakeConfigStore{} }
 func (tx *fakeTx) Outbox() contracts.EventOutbox           { return &fakeEventOutbox{db: tx.db, trace: tx.trace} }
+func (tx *fakeTx) Credentials() contracts.CredentialStore {
+	return &fakeCredentialStore{db: tx.db, trace: tx.trace}
+}
 
 // fakeUnitOfWork implements contracts.UnitOfWork with real rollback
-// semantics: it snapshots the shared fakeDB before calling fn, and restores
-// that snapshot if fn returns an error, so a test can prove state and
-// outbox events commit together or not at all.
+// semantics: it snapshots the shared fakeDB before calling fn, and
+// restores that snapshot if fn returns an error, so a test can prove
+// state and outbox events commit together or not at all.
 type fakeUnitOfWork struct {
 	db    *fakeDB
 	trace *trace
@@ -258,11 +409,11 @@ type fakeUnitOfWork struct {
 
 func (u *fakeUnitOfWork) WithinTx(ctx context.Context, fn func(ctx context.Context, tx contracts.Tx) error) error {
 	u.trace.record("uow.begin")
-	users, usernames, outbox := u.db.snapshot()
+	snap := u.db.snapshot()
 
 	tx := &fakeTx{db: u.db, trace: u.trace}
 	if err := fn(ctx, tx); err != nil {
-		u.db.restore(users, usernames, outbox)
+		u.db.restore(snap)
 		u.trace.record("uow.rolled_back")
 		return err
 	}
@@ -292,30 +443,30 @@ func (g *fakeIDGenerator) NewID() domain.ID {
 	return domain.ID(fmt.Sprintf("id-%d", g.next))
 }
 
-// fakePolicy implements app.PolicyDecisionPoint. It records that a
-// decision was requested and returns a fixed, configurable verdict, so
-// tests can exercise both the allow and deny paths through the same
-// service.
-type fakePolicy struct {
-	trace *trace
-	allow bool
+// fakePasswordVerifier implements domain.PasswordVerifier with a
+// reversible, deliberately insecure stand-in. Real hashing (Argon2id)
+// belongs to a future crypto adapter (MEG-015 §07); this exists purely
+// to exercise the interface boundary in tests.
+type fakePasswordVerifier struct{}
+
+func (fakePasswordVerifier) Hash(plaintext string) (string, error) {
+	return "insecure-test-hash:" + plaintext, nil
 }
 
-func (p *fakePolicy) Authorize(_ context.Context, _ app.Subject, _ app.Action, _ app.Resource, _ app.PolicyContext) (app.Decision, error) {
-	p.trace.record("policy.authorize")
-	if p.allow {
-		return app.Decision{Allowed: true, Reason: "fake policy: allow"}, nil
-	}
-	return app.Decision{Allowed: false, Reason: "fake policy: deny"}, nil
+func (fakePasswordVerifier) Verify(plaintext string, hash string) (bool, error) {
+	return hash == "insecure-test-hash:"+plaintext, nil
 }
 
-func newTestService(db *fakeDB, tr *trace, now time.Time, allow bool) *app.Service {
+func newTestService(db *fakeDB, tr *trace, now time.Time) *app.Service {
 	return app.NewService(
 		&fakeUnitOfWork{db: db, trace: tr},
 		&fakeSessionStore{db: db, trace: tr},
 		&fakeUserStore{db: db, trace: tr},
+		&fakeCredentialStore{db: db, trace: tr},
 		fakeClock{now: now},
 		&fakeIDGenerator{},
-		&fakePolicy{trace: tr, allow: allow},
+		policy.NewEngine(fakePermissionStore{db: db, trace: tr}),
+		&fakeEventPublisher{trace: tr},
+		fakePasswordVerifier{},
 	)
 }

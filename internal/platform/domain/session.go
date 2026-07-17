@@ -2,13 +2,32 @@ package domain
 
 import "time"
 
-// Session is an issued Platform session.
+// AuthStrength records which authentication factor produced a Session, so
+// policy decisions can weigh session strength (MEG-009 §04 — Attribute-
+// Based Access Control) without depending on how the factor was verified.
+type AuthStrength string
+
+const (
+	AuthStrengthPassword AuthStrength = "password"
+	AuthStrengthPasskey  AuthStrength = "passkey"
+	AuthStrengthRecovery AuthStrength = "recovery"
+)
+
+// Session is a server-issued, revocable Platform session (MEG-015 §07 —
+// Session Model). Fields match §07's session table exactly, plus RevokedAt
+// to record the revocation §07 requires ("sessions should be ... revocable
+// ... remote sign-out should revoke server-side session records, not rely
+// on clients deleting tokens").
 type Session struct {
-	ID        SessionID
-	UserID    UserID
-	IssuedAt  time.Time
-	ExpiresAt time.Time
-	RevokedAt *time.Time
+	ID           SessionID
+	UserID       UserID
+	DeviceID     DeviceID
+	IssuedAt     time.Time
+	LastSeenAt   time.Time
+	ExpiresAt    time.Time
+	AuthStrength AuthStrength
+	Capabilities []Permission
+	RevokedAt    *time.Time
 }
 
 // Revoked reports whether the session has been explicitly revoked.

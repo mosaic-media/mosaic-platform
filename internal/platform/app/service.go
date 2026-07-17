@@ -5,39 +5,54 @@ import (
 
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
+	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
+	"github.com/mosaic-media/mosaic-platform/internal/platform/sessions"
 )
 
 // Service hosts Platform application command and query handlers. It holds
-// direct read access to SessionStore and UserStore for authentication and
-// query paths, and a UnitOfWork for the transactional write path — the
-// same contracts, reached through the shape appropriate to each operation
-// (MEG-015 §04).
+// direct read access to SessionStore, UserStore and CredentialStore for
+// authentication and query paths, and a UnitOfWork for the transactional
+// write path — the same contracts, reached through the shape appropriate
+// to each operation (MEG-015 §04). It is the enforcement point for policy
+// decisions: the policy.PolicyDecisionPoint only decides; Service is what
+// actually refuses to mutate state on a deny (MEG-015 §07).
 type Service struct {
-	uow      contracts.UnitOfWork
-	sessions contracts.SessionStore
-	users    contracts.UserStore
-	clock    contracts.Clock
-	ids      contracts.IDGenerator
-	policy   PolicyDecisionPoint
+	uow              contracts.UnitOfWork
+	sessionStore     contracts.SessionStore
+	users            contracts.UserStore
+	credentials      contracts.CredentialStore
+	clock            contracts.Clock
+	ids              contracts.IDGenerator
+	policy           policy.PolicyDecisionPoint
+	events           contracts.EventPublisher
+	passwordVerifier domain.PasswordVerifier
+	sessionManager   *sessions.Manager
 }
 
-// NewService wires a Service to its Platform contracts and policy
-// decision point.
+// NewService wires a Service to its Platform contracts, policy decision
+// point and password verifier.
 func NewService(
 	uow contracts.UnitOfWork,
-	sessions contracts.SessionStore,
+	sessionStore contracts.SessionStore,
 	users contracts.UserStore,
+	credentials contracts.CredentialStore,
 	clock contracts.Clock,
 	ids contracts.IDGenerator,
-	policy PolicyDecisionPoint,
+	policyEngine policy.PolicyDecisionPoint,
+	events contracts.EventPublisher,
+	passwordVerifier domain.PasswordVerifier,
 ) *Service {
 	return &Service{
-		uow:      uow,
-		sessions: sessions,
-		users:    users,
-		clock:    clock,
-		ids:      ids,
-		policy:   policy,
+		uow:              uow,
+		sessionStore:     sessionStore,
+		users:            users,
+		credentials:      credentials,
+		clock:            clock,
+		ids:              ids,
+		policy:           policyEngine,
+		events:           events,
+		passwordVerifier: passwordVerifier,
+		sessionManager:   sessions.NewManager(clock, ids),
 	}
 }
 
@@ -46,39 +61,41 @@ func NewService(
 // queries: it runs before any policy or state check, and failure stops
 // processing immediately (MEG-009 §03 — Authentication).
 func (s *Service) authenticate(ctx context.Context, sessionID domain.SessionID) (domain.UserID, error) {
-	if sessionID == "" {
-		return "", contracts.NewError(contracts.Unauthenticated, "missing caller session")
-	}
-
-	session, err := s.sessions.FindByID(ctx, sessionID)
+	session, err := s.sessionManager.Validate(ctx, s.sessionStore, sessionID)
 	if err != nil {
-		if contracts.CategoryOf(err) == contracts.NotFound {
-			return "", contracts.WrapError(contracts.Unauthenticated, "session not found", err)
-		}
 		return "", err
 	}
-
-	if session.Revoked() {
-		return "", contracts.NewError(contracts.Unauthenticated, "session revoked")
-	}
-	if session.ExpiredAt(s.clock.Now()) {
-		return "", contracts.NewError(contracts.Unauthenticated, "session expired")
-	}
-
 	return session.UserID, nil
 }
 
 // authorize resolves step 3 of the command boundary (and the equivalent
 // query gate): it asks the PolicyDecisionPoint whether subject may perform
-// action on resource, and translates a denial into a PermissionDenied
-// contract error.
-func (s *Service) authorize(ctx context.Context, subject Subject, action Action, resource Resource) error {
-	decision, err := s.policy.Authorize(ctx, subject, action, resource, PolicyContext{})
+// action on resource, translates a denial into a PermissionDenied contract
+// error, and publishes an audit event for the denial (MEG-015 §07 — Audit
+// Events). This is the enforcement point the deny-cannot-mutate-state
+// guarantee depends on: every command and query calls this before opening
+// a UnitOfWork or reading state.
+func (s *Service) authorize(ctx context.Context, subject policy.Subject, action policy.Action, resource policy.Resource, policyContext policy.PolicyContext) error {
+	decision, err := s.policy.Authorize(ctx, subject, action, resource, policyContext)
 	if err != nil {
 		return contracts.WrapError(contracts.Internal, "evaluate policy", err)
 	}
 	if !decision.Allowed {
+		s.publishAuditEvent(ctx, "authorization.denied", []byte(string(action)))
 		return contracts.NewError(contracts.PermissionDenied, decision.Reason)
 	}
 	return nil
+}
+
+// publishAuditEvent publishes an audit event through the runtime event
+// backbone (MEG-015 §07). Publication is best-effort: a delivery failure
+// must never mask the authorization or authentication outcome that
+// triggered it, so the error is intentionally discarded.
+func (s *Service) publishAuditEvent(ctx context.Context, eventType string, payload []byte) {
+	_ = s.events.Publish(ctx, domain.Event{
+		ID:         domain.EventID(s.ids.NewID()),
+		Type:       eventType,
+		Payload:    payload,
+		OccurredAt: s.clock.Now(),
+	})
 }
