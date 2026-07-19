@@ -13,32 +13,9 @@ import (
 // the association graph.
 const ActionContentRelate policy.Action = "content.relate"
 
-// RelateContentCommand draws a typed, directed edge between two works — an
-// adaptation, a sequel, a collection membership (ADR 0013).
-//
-// Association is a graph and does not nest, which is why it lives here rather
-// than in the containment tree. This is also where three of ADR 0013's four
-// non-uniformities are expressed: an artist joined to its albums, a collected
-// edition to what it collects, an anime to its source manga.
-type RelateContentCommand struct {
-	CallerSessionID domain.SessionID
-	FromNodeID      v1.NodeID
-	ToNodeID        v1.NodeID
-	Type            v1.RelationType
-	// Confidence is between 0 and 1. The Origin says where the assertion
-	// came from, which is what makes a low confidence actionable.
-	Confidence float64
-	Origin     v1.RelationOrigin
-}
-
-// RelateContentResult carries the committed edge.
-type RelateContentResult struct {
-	Relation v1.Relation
-}
-
-func validateRelateContentCommand(cmd RelateContentCommand) error {
-	if cmd.CallerSessionID == "" {
-		return contracts.NewError(contracts.InvalidArgument, "caller session id is required")
+func validateRelateContentCommand(cmd v1.RelateContentCommand) error {
+	if cmd.Caller.Session == "" {
+		return contracts.NewError(contracts.InvalidArgument, "caller is required")
 	}
 	if cmd.FromNodeID == "" || cmd.ToNodeID == "" {
 		return contracts.NewError(contracts.InvalidArgument, "both endpoints are required")
@@ -58,25 +35,28 @@ func validateRelateContentCommand(cmd RelateContentCommand) error {
 	return nil
 }
 
-// RelateContent writes one edge of the association graph.
-func (s *Service) RelateContent(ctx context.Context, cmd RelateContentCommand) (RelateContentResult, error) {
+// RelateContent writes one edge of the association graph. Association is a
+// graph and does not nest (ADR 0013); this is where three of the four
+// deliberate non-uniformities are expressed — an artist joined to its albums,
+// a collected edition to what it collects, an anime to its source manga.
+func (s *Service) RelateContent(ctx context.Context, cmd v1.RelateContentCommand) (v1.RelateContentResult, error) {
 	// 1. validate command shape.
 	if err := validateRelateContentCommand(cmd); err != nil {
-		return RelateContentResult{}, err
+		return v1.RelateContentResult{}, err
 	}
 
 	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
 	if err != nil {
-		return RelateContentResult{}, err
+		return v1.RelateContentResult{}, err
 	}
 
 	// 3. authorize action through policy.
 	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRelate, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
-		return RelateContentResult{}, err
+		return v1.RelateContentResult{}, err
 	}
 
-	var result RelateContentResult
+	var result v1.RelateContentResult
 
 	// 4. open a UnitOfWork.
 	err = s.uow.WithinTx(ctx, func(ctx context.Context, tx contracts.Tx) error {
@@ -111,11 +91,11 @@ func (s *Service) RelateContent(ctx context.Context, cmd RelateContentCommand) (
 			return err
 		}
 
-		result = RelateContentResult{Relation: created}
+		result = v1.RelateContentResult{Relation: created}
 		return nil
 	})
 	if err != nil {
-		return RelateContentResult{}, err
+		return v1.RelateContentResult{}, err
 	}
 
 	// 8. return a Platform result type.

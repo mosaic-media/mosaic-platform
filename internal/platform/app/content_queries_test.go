@@ -48,8 +48,8 @@ func contentFixture(t *testing.T) (*app.Service, *fakeDB, *trace, domain.Session
 func TestSearchContentRequiresAuthenticationAndPolicy(t *testing.T) {
 	t.Run("an unknown session is unauthenticated", func(t *testing.T) {
 		svc, _, _, _ := contentFixture(t)
-		_, err := svc.SearchContent(context.Background(), app.SearchContentQuery{
-			CallerSessionID: "no-such-session", Title: "alchemist",
+		_, err := svc.SearchContent(context.Background(), v1.SearchContentQuery{
+			Caller: v1.Caller{Session: string("no-such-session")}, Title: "alchemist",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.Unauthenticated {
 			t.Fatalf("category = %s, want unauthenticated", got)
@@ -64,7 +64,7 @@ func TestSearchContentRequiresAuthenticationAndPolicy(t *testing.T) {
 		db.seedSession("s-2", "u-2", now)
 		// Deliberately no role: default-deny must hold.
 
-		_, err := svc.SearchContent(context.Background(), app.SearchContentQuery{CallerSessionID: "s-2"})
+		_, err := svc.SearchContent(context.Background(), v1.SearchContentQuery{Caller: v1.Caller{Session: string("s-2")}})
 		if got := contracts.CategoryOf(err); got != contracts.PermissionDenied {
 			t.Fatalf("category = %s, want permission_denied", got)
 		}
@@ -72,7 +72,7 @@ func TestSearchContentRequiresAuthenticationAndPolicy(t *testing.T) {
 
 	t.Run("a missing session id is invalid", func(t *testing.T) {
 		svc, _, _, _ := contentFixture(t)
-		_, err := svc.SearchContent(context.Background(), app.SearchContentQuery{Title: "x"})
+		_, err := svc.SearchContent(context.Background(), v1.SearchContentQuery{Title: "x"})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("category = %s, want invalid_argument", got)
 		}
@@ -80,8 +80,8 @@ func TestSearchContentRequiresAuthenticationAndPolicy(t *testing.T) {
 
 	t.Run("an unknown node kind is invalid", func(t *testing.T) {
 		svc, _, _, session := contentFixture(t)
-		_, err := svc.SearchContent(context.Background(), app.SearchContentQuery{
-			CallerSessionID: session, Kind: "sideways",
+		_, err := svc.SearchContent(context.Background(), v1.SearchContentQuery{
+			Caller: v1.Caller{Session: string(session)}, Kind: "sideways",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("category = %s, want invalid_argument", got)
@@ -99,7 +99,7 @@ func TestSearchContentDeniedBeforeReading(t *testing.T) {
 	db.seedUser(domain.User{ID: "u-2", Username: "nobody", Status: domain.UserActive, CreatedAt: now, UpdatedAt: now})
 	db.seedSession("s-2", "u-2", now)
 
-	if _, err := svc.SearchContent(context.Background(), app.SearchContentQuery{CallerSessionID: "s-2"}); err == nil {
+	if _, err := svc.SearchContent(context.Background(), v1.SearchContentQuery{Caller: v1.Caller{Session: string("s-2")}}); err == nil {
 		t.Fatal("expected the query to be denied")
 	}
 	for _, step := range tr.snapshot() {
@@ -112,8 +112,8 @@ func TestSearchContentDeniedBeforeReading(t *testing.T) {
 func TestSearchContentReturnsMatches(t *testing.T) {
 	svc, _, _, session := contentFixture(t)
 
-	result, err := svc.SearchContent(context.Background(), app.SearchContentQuery{
-		CallerSessionID: session, Title: "alchemist", Kind: v1.NodeWork,
+	result, err := svc.SearchContent(context.Background(), v1.SearchContentQuery{
+		Caller: v1.Caller{Session: string(session)}, Title: "alchemist", Kind: v1.NodeWork,
 	})
 	if err != nil {
 		t.Fatalf("SearchContent: %v", err)
@@ -129,11 +129,11 @@ func TestSearchContentDefaultsAndClampsTheLimit(t *testing.T) {
 	svc, _, _, session := contentFixture(t)
 	ctx := context.Background()
 
-	if _, err := svc.SearchContent(ctx, app.SearchContentQuery{CallerSessionID: session}); err != nil {
+	if _, err := svc.SearchContent(ctx, v1.SearchContentQuery{Caller: v1.Caller{Session: string(session)}}); err != nil {
 		t.Fatalf("an unspecified limit should default, got: %v", err)
 	}
 	// An absurd limit is clamped rather than refused.
-	if _, err := svc.SearchContent(ctx, app.SearchContentQuery{CallerSessionID: session, Limit: 100000}); err != nil {
+	if _, err := svc.SearchContent(ctx, v1.SearchContentQuery{Caller: v1.Caller{Session: string(session)}, Limit: 100000}); err != nil {
 		t.Fatalf("an oversized limit should clamp, got: %v", err)
 	}
 }
@@ -143,8 +143,8 @@ func TestFindContentByExternalID(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("finds a node by a provider identifier", func(t *testing.T) {
-		result, err := svc.FindContentByExternalID(ctx, app.FindContentByExternalIDQuery{
-			CallerSessionID: session, Scheme: "anilist", Value: "5114",
+		result, err := svc.FindContentByExternalID(ctx, v1.FindContentByExternalIDQuery{
+			Caller: v1.Caller{Session: string(session)}, Scheme: "anilist", Value: "5114",
 		})
 		if err != nil {
 			t.Fatalf("FindContentByExternalID: %v", err)
@@ -155,8 +155,8 @@ func TestFindContentByExternalID(t *testing.T) {
 	})
 
 	t.Run("an unknown identifier is an empty result, not an error", func(t *testing.T) {
-		result, err := svc.FindContentByExternalID(ctx, app.FindContentByExternalIDQuery{
-			CallerSessionID: session, Scheme: "anilist", Value: "999999",
+		result, err := svc.FindContentByExternalID(ctx, v1.FindContentByExternalIDQuery{
+			Caller: v1.Caller{Session: string(session)}, Scheme: "anilist", Value: "999999",
 		})
 		if err != nil {
 			t.Fatalf("FindContentByExternalID: %v", err)
@@ -167,8 +167,8 @@ func TestFindContentByExternalID(t *testing.T) {
 	})
 
 	t.Run("a missing scheme or value is invalid", func(t *testing.T) {
-		_, err := svc.FindContentByExternalID(ctx, app.FindContentByExternalIDQuery{
-			CallerSessionID: session, Value: "5114",
+		_, err := svc.FindContentByExternalID(ctx, v1.FindContentByExternalIDQuery{
+			Caller: v1.Caller{Session: string(session)}, Value: "5114",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("category = %s, want invalid_argument", got)
@@ -181,8 +181,8 @@ func TestGetContentNode(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("reads one node without its children by default", func(t *testing.T) {
-		result, err := svc.GetContentNode(ctx, app.GetContentNodeQuery{
-			CallerSessionID: session, NodeID: "n-1",
+		result, err := svc.GetContentNode(ctx, v1.GetContentNodeQuery{
+			Caller: v1.Caller{Session: string(session)}, NodeID: "n-1",
 		})
 		if err != nil {
 			t.Fatalf("GetContentNode: %v", err)
@@ -196,8 +196,8 @@ func TestGetContentNode(t *testing.T) {
 	})
 
 	t.Run("returns direct children when asked", func(t *testing.T) {
-		result, err := svc.GetContentNode(ctx, app.GetContentNodeQuery{
-			CallerSessionID: session, NodeID: "n-1", WithChildren: true,
+		result, err := svc.GetContentNode(ctx, v1.GetContentNodeQuery{
+			Caller: v1.Caller{Session: string(session)}, NodeID: "n-1", WithChildren: true,
 		})
 		if err != nil {
 			t.Fatalf("GetContentNode: %v", err)
@@ -208,8 +208,8 @@ func TestGetContentNode(t *testing.T) {
 	})
 
 	t.Run("a childless node returns an empty slice, not nil", func(t *testing.T) {
-		result, err := svc.GetContentNode(ctx, app.GetContentNodeQuery{
-			CallerSessionID: session, NodeID: "n-2", WithChildren: true,
+		result, err := svc.GetContentNode(ctx, v1.GetContentNodeQuery{
+			Caller: v1.Caller{Session: string(session)}, NodeID: "n-2", WithChildren: true,
 		})
 		if err != nil {
 			t.Fatalf("GetContentNode: %v", err)
@@ -223,8 +223,8 @@ func TestGetContentNode(t *testing.T) {
 	})
 
 	t.Run("a missing node is not found", func(t *testing.T) {
-		_, err := svc.GetContentNode(ctx, app.GetContentNodeQuery{
-			CallerSessionID: session, NodeID: "n-999",
+		_, err := svc.GetContentNode(ctx, v1.GetContentNodeQuery{
+			Caller: v1.Caller{Session: string(session)}, NodeID: "n-999",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.NotFound {
 			t.Fatalf("category = %s, want not_found", got)

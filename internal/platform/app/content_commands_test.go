@@ -32,8 +32,8 @@ func TestAddContentWork(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("creates a root work that roots its own tree", func(t *testing.T) {
-		result, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-			CallerSessionID: session, MediaType: v1.MediaAnimeSeries, Title: "Cowboy Bebop",
+		result, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+			Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaAnimeSeries, Title: "Cowboy Bebop",
 		})
 		if err != nil {
 			t.Fatalf("AddContentWork: %v", err)
@@ -54,8 +54,8 @@ func TestAddContentWork(t *testing.T) {
 	})
 
 	t.Run("emits content.work.created in the same transaction", func(t *testing.T) {
-		if _, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-			CallerSessionID: session, MediaType: v1.MediaMovie, Title: "Akira",
+		if _, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+			Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaMovie, Title: "Akira",
 		}); err != nil {
 			t.Fatalf("AddContentWork: %v", err)
 		}
@@ -65,8 +65,8 @@ func TestAddContentWork(t *testing.T) {
 	})
 
 	t.Run("normalises the media type", func(t *testing.T) {
-		result, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-			CallerSessionID: session, MediaType: "Anime Series", Title: "Trigun",
+		result, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+			Caller: v1.Caller{Session: string(session)}, MediaType: "Anime Series", Title: "Trigun",
 		})
 		if err != nil {
 			t.Fatalf("AddContentWork: %v", err)
@@ -77,11 +77,11 @@ func TestAddContentWork(t *testing.T) {
 	})
 
 	t.Run("requires a media type and a title", func(t *testing.T) {
-		_, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{CallerSessionID: session, Title: "x"})
+		_, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{Caller: v1.Caller{Session: string(session)}, Title: "x"})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("missing media type: category = %s", got)
 		}
-		_, err = svc.AddContentWork(ctx, app.AddContentWorkCommand{CallerSessionID: session, MediaType: v1.MediaMovie})
+		_, err = svc.AddContentWork(ctx, v1.AddContentWorkCommand{Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaMovie})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("missing title: category = %s", got)
 		}
@@ -95,8 +95,8 @@ func TestAddContentWork(t *testing.T) {
 		db.seedUser(domain.User{ID: "u-2", Username: "guest", Status: domain.UserActive, CreatedAt: now, UpdatedAt: now})
 		db.seedSession("s-2", "u-2", now)
 
-		_, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-			CallerSessionID: "s-2", MediaType: v1.MediaMovie, Title: "Denied",
+		_, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+			Caller: v1.Caller{Session: string("s-2")}, MediaType: v1.MediaMovie, Title: "Denied",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.PermissionDenied {
 			t.Fatalf("category = %s, want permission_denied", got)
@@ -115,8 +115,8 @@ func TestAddContentChild(t *testing.T) {
 
 	seedWork := func(t *testing.T) v1.Node {
 		t.Helper()
-		res, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-			CallerSessionID: session, MediaType: v1.MediaTVSeries, Title: "Severance",
+		res, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+			Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaTVSeries, Title: "Severance",
 		})
 		if err != nil {
 			t.Fatalf("seed work: %v", err)
@@ -126,8 +126,8 @@ func TestAddContentChild(t *testing.T) {
 
 	t.Run("inherits work id and media type from the parent", func(t *testing.T) {
 		work := seedWork(t)
-		res, err := svc.AddContentChild(ctx, app.AddContentChildCommand{
-			CallerSessionID: session, ParentID: work.ID,
+		res, err := svc.AddContentChild(ctx, v1.AddContentChildCommand{
+			Caller: v1.Caller{Session: string(session)}, ParentID: work.ID,
 			Kind: v1.NodeContainer, ContainerType: v1.ContainerSeason,
 			Title: "Season 1", NaturalOrder: 1,
 		})
@@ -147,8 +147,8 @@ func TestAddContentChild(t *testing.T) {
 	})
 
 	t.Run("a missing parent is not found", func(t *testing.T) {
-		_, err := svc.AddContentChild(ctx, app.AddContentChildCommand{
-			CallerSessionID: session, ParentID: "n-missing",
+		_, err := svc.AddContentChild(ctx, v1.AddContentChildCommand{
+			Caller: v1.Caller{Session: string(session)}, ParentID: "n-missing",
 			Kind: v1.NodeItem, ItemType: v1.ItemEpisode, Title: "Orphan",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.NotFound {
@@ -158,8 +158,8 @@ func TestAddContentChild(t *testing.T) {
 
 	t.Run("a work cannot be added as a child", func(t *testing.T) {
 		work := seedWork(t)
-		_, err := svc.AddContentChild(ctx, app.AddContentChildCommand{
-			CallerSessionID: session, ParentID: work.ID, Kind: v1.NodeWork, Title: "Nested",
+		_, err := svc.AddContentChild(ctx, v1.AddContentChildCommand{
+			Caller: v1.Caller{Session: string(session)}, ParentID: work.ID, Kind: v1.NodeWork, Title: "Nested",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("category = %s, want invalid_argument", got)
@@ -169,8 +169,8 @@ func TestAddContentChild(t *testing.T) {
 	t.Run("the type field must match the kind", func(t *testing.T) {
 		work := seedWork(t)
 		// A container carrying an item type.
-		_, err := svc.AddContentChild(ctx, app.AddContentChildCommand{
-			CallerSessionID: session, ParentID: work.ID,
+		_, err := svc.AddContentChild(ctx, v1.AddContentChildCommand{
+			Caller: v1.Caller{Session: string(session)}, ParentID: work.ID,
 			Kind: v1.NodeContainer, ContainerType: v1.ContainerSeason, ItemType: v1.ItemEpisode,
 			Title: "Bad",
 		})
@@ -178,8 +178,8 @@ func TestAddContentChild(t *testing.T) {
 			t.Fatalf("category = %s, want invalid_argument", got)
 		}
 		// An item with no item type.
-		_, err = svc.AddContentChild(ctx, app.AddContentChildCommand{
-			CallerSessionID: session, ParentID: work.ID, Kind: v1.NodeItem, Title: "No type",
+		_, err = svc.AddContentChild(ctx, v1.AddContentChildCommand{
+			Caller: v1.Caller{Session: string(session)}, ParentID: work.ID, Kind: v1.NodeItem, Title: "No type",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("category = %s, want invalid_argument", got)
@@ -194,14 +194,14 @@ func TestAttachContentPart(t *testing.T) {
 	// A work with one item beneath it, returning the item.
 	seedItem := func(t *testing.T) v1.Node {
 		t.Helper()
-		work, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-			CallerSessionID: session, MediaType: v1.MediaMovie, Title: "Blade Runner 2049",
+		work, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+			Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaMovie, Title: "Blade Runner 2049",
 		})
 		if err != nil {
 			t.Fatalf("seed work: %v", err)
 		}
-		item, err := svc.AddContentChild(ctx, app.AddContentChildCommand{
-			CallerSessionID: session, ParentID: work.Work.ID,
+		item, err := svc.AddContentChild(ctx, v1.AddContentChildCommand{
+			Caller: v1.Caller{Session: string(session)}, ParentID: work.Work.ID,
 			Kind: v1.NodeItem, ItemType: v1.ItemFeature, Title: "Blade Runner 2049",
 		})
 		if err != nil {
@@ -212,8 +212,8 @@ func TestAttachContentPart(t *testing.T) {
 
 	t.Run("attaches a local part to an item", func(t *testing.T) {
 		item := seedItem(t)
-		res, err := svc.AttachContentPart(ctx, app.AttachContentPartCommand{
-			CallerSessionID: session, NodeID: item.ID, Role: v1.PartEdition,
+		res, err := svc.AttachContentPart(ctx, v1.AttachContentPartCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: item.ID, Role: v1.PartEdition,
 			Location: v1.MediaLocation{Scheme: v1.LocalLocation, Ref: "/media/br2049.mkv"},
 			Duration: 2 * time.Hour,
 		})
@@ -226,14 +226,14 @@ func TestAttachContentPart(t *testing.T) {
 	})
 
 	t.Run("refuses to attach to a work or container", func(t *testing.T) {
-		work, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-			CallerSessionID: session, MediaType: v1.MediaTVSeries, Title: "Severance",
+		work, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+			Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaTVSeries, Title: "Severance",
 		})
 		if err != nil {
 			t.Fatalf("seed work: %v", err)
 		}
-		_, err = svc.AttachContentPart(ctx, app.AttachContentPartCommand{
-			CallerSessionID: session, NodeID: work.Work.ID, Role: v1.PartEdition,
+		_, err = svc.AttachContentPart(ctx, v1.AttachContentPartCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: work.Work.ID, Role: v1.PartEdition,
 			Location: v1.MediaLocation{Scheme: v1.LocalLocation, Ref: "/media/x.mkv"},
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
@@ -243,15 +243,15 @@ func TestAttachContentPart(t *testing.T) {
 
 	t.Run("a remote location requires a provider, a local one forbids it", func(t *testing.T) {
 		item := seedItem(t)
-		_, err := svc.AttachContentPart(ctx, app.AttachContentPartCommand{
-			CallerSessionID: session, NodeID: item.ID, Role: v1.PartEdition,
+		_, err := svc.AttachContentPart(ctx, v1.AttachContentPartCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: item.ID, Role: v1.PartEdition,
 			Location: v1.MediaLocation{Scheme: v1.RemoteLocation, Ref: "magnet:?x"},
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("remote without provider: category = %s", got)
 		}
-		_, err = svc.AttachContentPart(ctx, app.AttachContentPartCommand{
-			CallerSessionID: session, NodeID: item.ID, Role: v1.PartEdition,
+		_, err = svc.AttachContentPart(ctx, v1.AttachContentPartCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: item.ID, Role: v1.PartEdition,
 			Location: v1.MediaLocation{Scheme: v1.LocalLocation, Provider: "debrid", Ref: "/x.mkv"},
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
@@ -268,8 +268,8 @@ func TestContentCommandRollsBackAtomically(t *testing.T) {
 	svc, db, _, session := commandFixture(t)
 	ctx := context.Background()
 
-	work, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-		CallerSessionID: session, MediaType: v1.MediaMovie, Title: "Arrival",
+	work, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+		Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaMovie, Title: "Arrival",
 	})
 	if err != nil {
 		t.Fatalf("seed work: %v", err)
@@ -278,8 +278,8 @@ func TestContentCommandRollsBackAtomically(t *testing.T) {
 
 	// Attaching to the work (not an item) fails after the node is loaded and
 	// before anything commits.
-	_, err = svc.AttachContentPart(ctx, app.AttachContentPartCommand{
-		CallerSessionID: session, NodeID: work.Work.ID, Role: v1.PartEdition,
+	_, err = svc.AttachContentPart(ctx, v1.AttachContentPartCommand{
+		Caller: v1.Caller{Session: string(session)}, NodeID: work.Work.ID, Role: v1.PartEdition,
 		Location: v1.MediaLocation{Scheme: v1.LocalLocation, Ref: "/x.mkv"},
 	})
 	if contracts.CategoryOf(err) != contracts.InvalidArgument {

@@ -9,43 +9,9 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
 )
 
-// AddContentChildCommand adds a container or item beneath an existing node —
-// a season under a series, an episode under a season, a chapter under a
-// volume (ADR 0013).
-//
-// Two fields a caller might expect to set are derived from the parent
-// instead. A child belongs to the same tree as its parent, so its work id is
-// the parent's work id, not the caller's to choose. And media type is carried
-// on every node so a node is interpretable without walking to its root; a
-// child therefore inherits its parent's, which also stops a season from
-// declaring a different media type than its series.
-type AddContentChildCommand struct {
-	CallerSessionID domain.SessionID
-	ParentID        v1.NodeID
-	// Kind must be container or item. A work is never a child, so it is not
-	// accepted here.
-	Kind v1.NodeKind
-	// ContainerType applies when Kind is container, ItemType when it is item;
-	// the other must be empty. Both are open vocabularies, canonicalised on
-	// write (ADR 0015).
-	ContainerType v1.ContainerType
-	ItemType      v1.ItemType
-	Title         string
-	// NaturalOrder places the child among its siblings. A float so an
-	// insertion does not renumber the rest (ADR 0013).
-	NaturalOrder float64
-	ExternalIDs  []byte
-	Attributes   []byte
-}
-
-// AddContentChildResult carries the committed child.
-type AddContentChildResult struct {
-	Node v1.Node
-}
-
-func validateAddContentChildCommand(cmd AddContentChildCommand) error {
-	if cmd.CallerSessionID == "" {
-		return contracts.NewError(contracts.InvalidArgument, "caller session id is required")
+func validateAddContentChildCommand(cmd v1.AddContentChildCommand) error {
+	if cmd.Caller.Session == "" {
+		return contracts.NewError(contracts.InvalidArgument, "caller is required")
 	}
 	if cmd.ParentID == "" {
 		return contracts.NewError(contracts.InvalidArgument, "parent id is required")
@@ -76,25 +42,27 @@ func validateAddContentChildCommand(cmd AddContentChildCommand) error {
 	return nil
 }
 
-// AddContentChild inserts one layer of the containment tree.
-func (s *Service) AddContentChild(ctx context.Context, cmd AddContentChildCommand) (AddContentChildResult, error) {
+// AddContentChild inserts one layer of the containment tree. A child inherits
+// its work id and media type from its parent (ADR 0013), so a season cannot
+// declare a different media type than its series.
+func (s *Service) AddContentChild(ctx context.Context, cmd v1.AddContentChildCommand) (v1.AddContentChildResult, error) {
 	// 1. validate command shape.
 	if err := validateAddContentChildCommand(cmd); err != nil {
-		return AddContentChildResult{}, err
+		return v1.AddContentChildResult{}, err
 	}
 
 	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
 	if err != nil {
-		return AddContentChildResult{}, err
+		return v1.AddContentChildResult{}, err
 	}
 
 	// 3. authorize action through policy.
 	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentCreate, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
-		return AddContentChildResult{}, err
+		return v1.AddContentChildResult{}, err
 	}
 
-	var result AddContentChildResult
+	var result v1.AddContentChildResult
 
 	// 4. open a UnitOfWork.
 	err = s.uow.WithinTx(ctx, func(ctx context.Context, tx contracts.Tx) error {
@@ -135,11 +103,11 @@ func (s *Service) AddContentChild(ctx context.Context, cmd AddContentChildComman
 			return err
 		}
 
-		result = AddContentChildResult{Node: created}
+		result = v1.AddContentChildResult{Node: created}
 		return nil
 	})
 	if err != nil {
-		return AddContentChildResult{}, err
+		return v1.AddContentChildResult{}, err
 	}
 
 	// 8. return a Platform result type.

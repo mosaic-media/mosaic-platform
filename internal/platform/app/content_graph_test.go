@@ -18,14 +18,14 @@ func twoWorks(t *testing.T) (*app.Service, *fakeDB, domain.SessionID, v1.NodeID,
 	t.Helper()
 	svc, db, _, session := commandFixture(t)
 	ctx := context.Background()
-	a, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-		CallerSessionID: session, MediaType: v1.MediaAnimeSeries, Title: "Fullmetal Alchemist: Brotherhood",
+	a, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+		Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaAnimeSeries, Title: "Fullmetal Alchemist: Brotherhood",
 	})
 	if err != nil {
 		t.Fatalf("seed anime: %v", err)
 	}
-	b, err := svc.AddContentWork(ctx, app.AddContentWorkCommand{
-		CallerSessionID: session, MediaType: v1.MediaMangaSeries, Title: "Fullmetal Alchemist",
+	b, err := svc.AddContentWork(ctx, v1.AddContentWorkCommand{
+		Caller: v1.Caller{Session: string(session)}, MediaType: v1.MediaMangaSeries, Title: "Fullmetal Alchemist",
 	})
 	if err != nil {
 		t.Fatalf("seed manga: %v", err)
@@ -38,8 +38,8 @@ func TestRelateContent(t *testing.T) {
 
 	t.Run("draws an edge between two works", func(t *testing.T) {
 		svc, db, session, anime, manga := twoWorks(t)
-		res, err := svc.RelateContent(ctx, app.RelateContentCommand{
-			CallerSessionID: session, FromNodeID: anime, ToNodeID: manga,
+		res, err := svc.RelateContent(ctx, v1.RelateContentCommand{
+			Caller: v1.Caller{Session: string(session)}, FromNodeID: anime, ToNodeID: manga,
 			Type: v1.RelationAdaptation, Confidence: 0.98, Origin: v1.OriginProviderSupplied,
 		})
 		if err != nil {
@@ -55,8 +55,8 @@ func TestRelateContent(t *testing.T) {
 
 	t.Run("rejects a self loop", func(t *testing.T) {
 		svc, _, session, anime, _ := twoWorks(t)
-		_, err := svc.RelateContent(ctx, app.RelateContentCommand{
-			CallerSessionID: session, FromNodeID: anime, ToNodeID: anime,
+		_, err := svc.RelateContent(ctx, v1.RelateContentCommand{
+			Caller: v1.Caller{Session: string(session)}, FromNodeID: anime, ToNodeID: anime,
 			Type: v1.RelationSequel, Confidence: 1, Origin: v1.OriginUserConfirmed,
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
@@ -66,8 +66,8 @@ func TestRelateContent(t *testing.T) {
 
 	t.Run("rejects an unknown type, origin, or out-of-range confidence", func(t *testing.T) {
 		svc, _, session, anime, manga := twoWorks(t)
-		base := app.RelateContentCommand{
-			CallerSessionID: session, FromNodeID: anime, ToNodeID: manga,
+		base := v1.RelateContentCommand{
+			Caller: v1.Caller{Session: string(session)}, FromNodeID: anime, ToNodeID: manga,
 			Type: v1.RelationAdaptation, Confidence: 1, Origin: v1.OriginProviderSupplied,
 		}
 		bad := base
@@ -89,8 +89,8 @@ func TestRelateContent(t *testing.T) {
 
 	t.Run("a missing endpoint is not found", func(t *testing.T) {
 		svc, _, session, anime, _ := twoWorks(t)
-		_, err := svc.RelateContent(ctx, app.RelateContentCommand{
-			CallerSessionID: session, FromNodeID: anime, ToNodeID: "n-missing",
+		_, err := svc.RelateContent(ctx, v1.RelateContentCommand{
+			Caller: v1.Caller{Session: string(session)}, FromNodeID: anime, ToNodeID: "n-missing",
 			Type: v1.RelationAdaptation, Confidence: 1, Origin: v1.OriginProviderSupplied,
 		})
 		if got := contracts.CategoryOf(err); got != contracts.NotFound {
@@ -100,8 +100,8 @@ func TestRelateContent(t *testing.T) {
 
 	t.Run("a duplicate edge is a conflict", func(t *testing.T) {
 		svc, _, session, anime, manga := twoWorks(t)
-		cmd := app.RelateContentCommand{
-			CallerSessionID: session, FromNodeID: anime, ToNodeID: manga,
+		cmd := v1.RelateContentCommand{
+			Caller: v1.Caller{Session: string(session)}, FromNodeID: anime, ToNodeID: manga,
 			Type: v1.RelationAdaptation, Confidence: 1, Origin: v1.OriginProviderSupplied,
 		}
 		if _, err := svc.RelateContent(ctx, cmd); err != nil {
@@ -118,8 +118,8 @@ func TestBindContentSource(t *testing.T) {
 
 	t.Run("binds a confirmed source to a node", func(t *testing.T) {
 		svc, db, session, anime, _ := twoWorks(t)
-		res, err := svc.BindContentSource(ctx, app.BindContentSourceCommand{
-			CallerSessionID: session, NodeID: anime,
+		res, err := svc.BindContentSource(ctx, v1.BindContentSourceCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: anime,
 			SourceProvider: "anilist", SourceRef: "5114",
 			MatchConfidence: 1, MatchMethod: v1.MatchExternalIDExact, Status: v1.BindingConfirmed,
 		})
@@ -136,8 +136,8 @@ func TestBindContentSource(t *testing.T) {
 
 	t.Run("a weak match may be queued for review", func(t *testing.T) {
 		svc, _, session, anime, _ := twoWorks(t)
-		res, err := svc.BindContentSource(ctx, app.BindContentSourceCommand{
-			CallerSessionID: session, NodeID: anime,
+		res, err := svc.BindContentSource(ctx, v1.BindContentSourceCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: anime,
 			SourceProvider: "fuzzy", SourceRef: "maybe", MatchConfidence: 0.4,
 			MatchMethod: v1.MatchFuzzyTitle, Status: v1.BindingPendingReview,
 		})
@@ -151,8 +151,8 @@ func TestBindContentSource(t *testing.T) {
 
 	t.Run("a new binding cannot be created rejected", func(t *testing.T) {
 		svc, _, session, anime, _ := twoWorks(t)
-		_, err := svc.BindContentSource(ctx, app.BindContentSourceCommand{
-			CallerSessionID: session, NodeID: anime,
+		_, err := svc.BindContentSource(ctx, v1.BindContentSourceCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: anime,
 			SourceProvider: "x", SourceRef: "y", MatchConfidence: 0,
 			MatchMethod: v1.MatchFuzzyTitle, Status: v1.BindingRejected,
 		})
@@ -163,8 +163,8 @@ func TestBindContentSource(t *testing.T) {
 
 	t.Run("binding a missing node is not found", func(t *testing.T) {
 		svc, _, session, _, _ := twoWorks(t)
-		_, err := svc.BindContentSource(ctx, app.BindContentSourceCommand{
-			CallerSessionID: session, NodeID: "n-missing",
+		_, err := svc.BindContentSource(ctx, v1.BindContentSourceCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: "n-missing",
 			SourceProvider: "x", SourceRef: "y", MatchConfidence: 1,
 			MatchMethod: v1.MatchExternalIDExact, Status: v1.BindingConfirmed,
 		})
@@ -175,8 +175,8 @@ func TestBindContentSource(t *testing.T) {
 
 	t.Run("one source binds to at most one node", func(t *testing.T) {
 		svc, _, session, anime, manga := twoWorks(t)
-		cmd := app.BindContentSourceCommand{
-			CallerSessionID: session, NodeID: anime,
+		cmd := v1.BindContentSourceCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: anime,
 			SourceProvider: "anilist", SourceRef: "5114", MatchConfidence: 1,
 			MatchMethod: v1.MatchExternalIDExact, Status: v1.BindingConfirmed,
 		}
@@ -198,8 +198,8 @@ func TestResolveContentBinding(t *testing.T) {
 	seedPending := func(t *testing.T) (*app.Service, domain.SessionID, v1.SourceBindingID, v1.NodeID, v1.NodeID) {
 		t.Helper()
 		svc, _, session, wrong, right := twoWorks(t)
-		res, err := svc.BindContentSource(ctx, app.BindContentSourceCommand{
-			CallerSessionID: session, NodeID: wrong,
+		res, err := svc.BindContentSource(ctx, v1.BindContentSourceCommand{
+			Caller: v1.Caller{Session: string(session)}, NodeID: wrong,
 			SourceProvider: "fuzzy", SourceRef: "thing-2011", MatchConfidence: 0.5,
 			MatchMethod: v1.MatchFuzzyTitle, Status: v1.BindingPendingReview,
 		})
@@ -211,8 +211,8 @@ func TestResolveContentBinding(t *testing.T) {
 
 	t.Run("confirm settles the binding", func(t *testing.T) {
 		svc, session, binding, _, _ := seedPending(t)
-		res, err := svc.ResolveContentBinding(ctx, app.ResolveContentBindingCommand{
-			CallerSessionID: session, BindingID: binding, Resolution: app.ResolveConfirm,
+		res, err := svc.ResolveContentBinding(ctx, v1.ResolveContentBindingCommand{
+			Caller: v1.Caller{Session: string(session)}, BindingID: binding, Resolution: v1.ResolveConfirm,
 		})
 		if err != nil {
 			t.Fatalf("ResolveContentBinding: %v", err)
@@ -224,8 +224,8 @@ func TestResolveContentBinding(t *testing.T) {
 
 	t.Run("reject keeps the row but declines the match", func(t *testing.T) {
 		svc, session, binding, _, _ := seedPending(t)
-		res, err := svc.ResolveContentBinding(ctx, app.ResolveContentBindingCommand{
-			CallerSessionID: session, BindingID: binding, Resolution: app.ResolveReject,
+		res, err := svc.ResolveContentBinding(ctx, v1.ResolveContentBindingCommand{
+			Caller: v1.Caller{Session: string(session)}, BindingID: binding, Resolution: v1.ResolveReject,
 		})
 		if err != nil {
 			t.Fatalf("ResolveContentBinding: %v", err)
@@ -239,8 +239,8 @@ func TestResolveContentBinding(t *testing.T) {
 	// re-resolving the source's identity.
 	t.Run("a split moves the binding and confirms it", func(t *testing.T) {
 		svc, session, binding, wrong, right := seedPending(t)
-		res, err := svc.ResolveContentBinding(ctx, app.ResolveContentBindingCommand{
-			CallerSessionID: session, BindingID: binding, Resolution: app.ResolveConfirm, MoveToNodeID: right,
+		res, err := svc.ResolveContentBinding(ctx, v1.ResolveContentBindingCommand{
+			Caller: v1.Caller{Session: string(session)}, BindingID: binding, Resolution: v1.ResolveConfirm, MoveToNodeID: right,
 		})
 		if err != nil {
 			t.Fatalf("ResolveContentBinding: %v", err)
@@ -260,8 +260,8 @@ func TestResolveContentBinding(t *testing.T) {
 
 	t.Run("a rejection cannot also move", func(t *testing.T) {
 		svc, session, binding, _, right := seedPending(t)
-		_, err := svc.ResolveContentBinding(ctx, app.ResolveContentBindingCommand{
-			CallerSessionID: session, BindingID: binding, Resolution: app.ResolveReject, MoveToNodeID: right,
+		_, err := svc.ResolveContentBinding(ctx, v1.ResolveContentBindingCommand{
+			Caller: v1.Caller{Session: string(session)}, BindingID: binding, Resolution: v1.ResolveReject, MoveToNodeID: right,
 		})
 		if got := contracts.CategoryOf(err); got != contracts.InvalidArgument {
 			t.Fatalf("category = %s, want invalid_argument", got)
@@ -270,8 +270,8 @@ func TestResolveContentBinding(t *testing.T) {
 
 	t.Run("splitting onto a missing node is not found", func(t *testing.T) {
 		svc, session, binding, _, _ := seedPending(t)
-		_, err := svc.ResolveContentBinding(ctx, app.ResolveContentBindingCommand{
-			CallerSessionID: session, BindingID: binding, Resolution: app.ResolveConfirm, MoveToNodeID: "n-missing",
+		_, err := svc.ResolveContentBinding(ctx, v1.ResolveContentBindingCommand{
+			Caller: v1.Caller{Session: string(session)}, BindingID: binding, Resolution: v1.ResolveConfirm, MoveToNodeID: "n-missing",
 		})
 		if got := contracts.CategoryOf(err); got != contracts.NotFound {
 			t.Fatalf("category = %s, want not_found", got)
@@ -280,8 +280,8 @@ func TestResolveContentBinding(t *testing.T) {
 
 	t.Run("resolving a missing binding is not found", func(t *testing.T) {
 		svc, session, _, _, _ := seedPending(t)
-		_, err := svc.ResolveContentBinding(ctx, app.ResolveContentBindingCommand{
-			CallerSessionID: session, BindingID: "b-missing", Resolution: app.ResolveConfirm,
+		_, err := svc.ResolveContentBinding(ctx, v1.ResolveContentBindingCommand{
+			Caller: v1.Caller{Session: string(session)}, BindingID: "b-missing", Resolution: v1.ResolveConfirm,
 		})
 		if got := contracts.CategoryOf(err); got != contracts.NotFound {
 			t.Fatalf("category = %s, want not_found", got)
@@ -289,5 +289,5 @@ func TestResolveContentBinding(t *testing.T) {
 	})
 }
 
-func mustErrRelate(_ app.RelateContentResult, err error) error   { return err }
-func mustErrBind(_ app.BindContentSourceResult, err error) error { return err }
+func mustErrRelate(_ v1.RelateContentResult, err error) error   { return err }
+func mustErrBind(_ v1.BindContentSourceResult, err error) error { return err }

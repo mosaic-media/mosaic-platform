@@ -13,47 +13,16 @@ import (
 // binding in the review queue.
 const ActionContentResolve policy.Action = "content.resolve"
 
-// BindingResolution is the decision a reviewer makes about a pending binding.
-type BindingResolution string
-
-const (
-	// ResolveConfirm settles a binding against its node — a merge.
-	ResolveConfirm BindingResolution = "confirm"
-	// ResolveReject declines the match, keeping the row so the same weak
-	// match is not proposed again.
-	ResolveReject BindingResolution = "reject"
-)
-
-// ResolveContentBindingCommand acts on a binding a person is reviewing
-// (ADR 0013). The three operations the model describes all pass through here:
-// a merge is Confirm, a rejection is Reject, and a split is Confirm with
-// MoveToNodeID set — the binding moves to a different node and the source is
-// never re-fingerprinted.
-type ResolveContentBindingCommand struct {
-	CallerSessionID domain.SessionID
-	BindingID       v1.SourceBindingID
-	Resolution      BindingResolution
-	// MoveToNodeID re-targets the binding before confirming — a split. It is
-	// only valid with Confirm: rejecting a match and moving it at once is
-	// contradictory.
-	MoveToNodeID v1.NodeID
-}
-
-// ResolveContentBindingResult carries the updated binding.
-type ResolveContentBindingResult struct {
-	Binding v1.SourceBinding
-}
-
-func validateResolveContentBindingCommand(cmd ResolveContentBindingCommand) error {
-	if cmd.CallerSessionID == "" {
-		return contracts.NewError(contracts.InvalidArgument, "caller session id is required")
+func validateResolveContentBindingCommand(cmd v1.ResolveContentBindingCommand) error {
+	if cmd.Caller.Session == "" {
+		return contracts.NewError(contracts.InvalidArgument, "caller is required")
 	}
 	if cmd.BindingID == "" {
 		return contracts.NewError(contracts.InvalidArgument, "binding id is required")
 	}
 	switch cmd.Resolution {
-	case ResolveConfirm:
-	case ResolveReject:
+	case v1.ResolveConfirm:
+	case v1.ResolveReject:
 		if cmd.MoveToNodeID != "" {
 			return contracts.NewError(contracts.InvalidArgument, "a rejected binding cannot also be moved")
 		}
@@ -63,25 +32,27 @@ func validateResolveContentBindingCommand(cmd ResolveContentBindingCommand) erro
 	return nil
 }
 
-// ResolveContentBinding settles one entry in the review queue.
-func (s *Service) ResolveContentBinding(ctx context.Context, cmd ResolveContentBindingCommand) (ResolveContentBindingResult, error) {
+// ResolveContentBinding settles one entry in the review queue. A merge is
+// Confirm, a decline is Reject, and a split is Confirm with MoveToNodeID —
+// the binding moves and the source's identity is never re-resolved (ADR 0013).
+func (s *Service) ResolveContentBinding(ctx context.Context, cmd v1.ResolveContentBindingCommand) (v1.ResolveContentBindingResult, error) {
 	// 1. validate command shape.
 	if err := validateResolveContentBindingCommand(cmd); err != nil {
-		return ResolveContentBindingResult{}, err
+		return v1.ResolveContentBindingResult{}, err
 	}
 
 	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
 	if err != nil {
-		return ResolveContentBindingResult{}, err
+		return v1.ResolveContentBindingResult{}, err
 	}
 
 	// 3. authorize action through policy.
 	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentResolve, policy.Resource{Type: "content", ID: string(cmd.BindingID)}, policy.PolicyContext{}); err != nil {
-		return ResolveContentBindingResult{}, err
+		return v1.ResolveContentBindingResult{}, err
 	}
 
-	var result ResolveContentBindingResult
+	var result v1.ResolveContentBindingResult
 
 	// 4. open a UnitOfWork.
 	err = s.uow.WithinTx(ctx, func(ctx context.Context, tx contracts.Tx) error {
@@ -99,9 +70,9 @@ func (s *Service) ResolveContentBinding(ctx context.Context, cmd ResolveContentB
 		// confirms, keeping the source's identity (method, confidence)
 		// untouched.
 		switch cmd.Resolution {
-		case ResolveReject:
+		case v1.ResolveReject:
 			binding.Status = v1.BindingRejected
-		case ResolveConfirm:
+		case v1.ResolveConfirm:
 			if cmd.MoveToNodeID != "" {
 				if _, err := tx.Nodes().FindByID(ctx, cmd.MoveToNodeID); err != nil {
 					return err
@@ -123,11 +94,11 @@ func (s *Service) ResolveContentBinding(ctx context.Context, cmd ResolveContentB
 			return err
 		}
 
-		result = ResolveContentBindingResult{Binding: updated}
+		result = v1.ResolveContentBindingResult{Binding: updated}
 		return nil
 	})
 	if err != nil {
-		return ResolveContentBindingResult{}, err
+		return v1.ResolveContentBindingResult{}, err
 	}
 
 	// 8. return a Platform result type.

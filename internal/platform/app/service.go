@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	v1 "github.com/mosaic-media/mosaic-platform/contracts/platform/v1"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/config"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
@@ -84,6 +85,14 @@ func (s *Service) authenticate(ctx context.Context, sessionID domain.SessionID) 
 		return "", err
 	}
 	return session.UserID, nil
+}
+
+// authenticateCaller is authenticate for the published content surface: a
+// v1.Caller carries an opaque session reference (ADR 0017), which resolves to
+// the same internal session identity as any other caller. The Caller is only
+// as authoritative as that session, which this validates.
+func (s *Service) authenticateCaller(ctx context.Context, caller v1.Caller) (domain.UserID, error) {
+	return s.authenticate(ctx, domain.SessionID(caller.Session))
 }
 
 // authorize resolves step 3 of the command boundary (and the equivalent

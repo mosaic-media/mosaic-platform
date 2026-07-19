@@ -9,36 +9,18 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
 )
 
+// ContentService is the published surface (contracts/platform/v1) these
+// handlers implement. The assertion fails to compile if a method drifts from
+// the contract a capability depends on (ADR 0016).
+var _ v1.ContentService = (*Service)(nil)
+
 // ActionContentCreate is the policy action evaluated for adding catalogue
 // structure — works, containers, items and parts.
 const ActionContentCreate policy.Action = "content.create"
 
-// AddContentWorkCommand creates the root of a containment tree — a film, a
-// series, an album, an artist, a collection (ADR 0013).
-//
-// The command carries only what a caller legitimately chooses. The Platform
-// derives the rest: a work is its own tree's root, so its id and work id are
-// the same and it has no parent, and none of that is the caller's to set.
-type AddContentWorkCommand struct {
-	CallerSessionID domain.SessionID
-	MediaType       v1.MediaType
-	Title           string
-	// ExternalIDs and Attributes are optional JSON documents. Empty means
-	// an empty object; the schema does not validate their contents
-	// (ADR 0013).
-	ExternalIDs []byte
-	Attributes  []byte
-}
-
-// AddContentWorkResult carries the committed work, whose MediaType is the
-// canonical form (ADR 0015) and may differ from what was sent.
-type AddContentWorkResult struct {
-	Work v1.Node
-}
-
-func validateAddContentWorkCommand(cmd AddContentWorkCommand) error {
-	if cmd.CallerSessionID == "" {
-		return contracts.NewError(contracts.InvalidArgument, "caller session id is required")
+func validateAddContentWorkCommand(cmd v1.AddContentWorkCommand) error {
+	if cmd.Caller.Session == "" {
+		return contracts.NewError(contracts.InvalidArgument, "caller is required")
 	}
 	if cmd.MediaType == "" {
 		return contracts.NewError(contracts.InvalidArgument, "media type is required")
@@ -52,24 +34,24 @@ func validateAddContentWorkCommand(cmd AddContentWorkCommand) error {
 // AddContentWork follows the command boundary: validate, authenticate,
 // authorize, open a UnitOfWork, apply the domain shape of a Work, persist it
 // with its outbox event in one transaction, and return the committed value.
-func (s *Service) AddContentWork(ctx context.Context, cmd AddContentWorkCommand) (AddContentWorkResult, error) {
+func (s *Service) AddContentWork(ctx context.Context, cmd v1.AddContentWorkCommand) (v1.AddContentWorkResult, error) {
 	// 1. validate command shape.
 	if err := validateAddContentWorkCommand(cmd); err != nil {
-		return AddContentWorkResult{}, err
+		return v1.AddContentWorkResult{}, err
 	}
 
 	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
 	if err != nil {
-		return AddContentWorkResult{}, err
+		return v1.AddContentWorkResult{}, err
 	}
 
 	// 3. authorize action through policy.
 	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentCreate, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
-		return AddContentWorkResult{}, err
+		return v1.AddContentWorkResult{}, err
 	}
 
-	var result AddContentWorkResult
+	var result v1.AddContentWorkResult
 
 	// 4. open a UnitOfWork.
 	err = s.uow.WithinTx(ctx, func(ctx context.Context, tx contracts.Tx) error {
@@ -103,11 +85,11 @@ func (s *Service) AddContentWork(ctx context.Context, cmd AddContentWorkCommand)
 			return err
 		}
 
-		result = AddContentWorkResult{Work: created}
+		result = v1.AddContentWorkResult{Work: created}
 		return nil
 	})
 	if err != nil {
-		return AddContentWorkResult{}, err
+		return v1.AddContentWorkResult{}, err
 	}
 
 	// 8. return a Platform result type.
