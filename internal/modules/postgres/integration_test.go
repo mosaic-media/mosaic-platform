@@ -80,6 +80,7 @@ func TestApplicationServicesRunAgainstPostgres(t *testing.T) {
 		cs.Nodes,
 		cs.Clock,
 		cs.IDs,
+		cs.ContentIDs,
 		policy.NewEngine(cs.Permissions),
 		noopPublisher{},
 		reversibleVerifier{},

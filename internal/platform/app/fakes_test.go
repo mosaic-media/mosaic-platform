@@ -44,6 +44,8 @@ type fakeDBSnapshot struct {
 	passwords map[domain.UserID]domain.PasswordCredential
 	configs   map[domain.ConfigVersionID]domain.ConfigVersion
 	outbox    []domain.OutboxEvent
+	nodes     map[domain.NodeID]domain.Node
+	parts     map[domain.PartID]domain.Part
 }
 
 // fakeDB is the shared backing store behind every fake contract in this
@@ -64,10 +66,9 @@ type fakeDB struct {
 	// this slice does not build a command for.
 	roles map[domain.UserID][]domain.Role
 
-	// nodes backs the content query services. Only the reads those services
-	// make are implemented; the write half of the content model has no
-	// application service yet, so there is nothing here to exercise it.
+	// nodes and parts back the content commands and queries.
 	nodes map[domain.NodeID]domain.Node
+	parts map[domain.PartID]domain.Part
 }
 
 func newFakeDB() *fakeDB {
@@ -79,6 +80,7 @@ func newFakeDB() *fakeDB {
 		configs:   make(map[domain.ConfigVersionID]domain.ConfigVersion),
 		roles:     make(map[domain.UserID][]domain.Role),
 		nodes:     make(map[domain.NodeID]domain.Node),
+		parts:     make(map[domain.PartID]domain.Part),
 	}
 }
 
@@ -129,6 +131,7 @@ func adminRole() domain.Role {
 			domain.Permission(app.ActionPermissionRead),
 			domain.Permission(app.ActionConfigRead),
 			domain.Permission(app.ActionContentRead),
+			domain.Permission(app.ActionContentCreate),
 		},
 	}
 }
@@ -158,6 +161,14 @@ func (db *fakeDB) snapshot() fakeDBSnapshot {
 		configs[k] = v
 	}
 	outbox := append([]domain.OutboxEvent(nil), db.outbox...)
+	nodes := make(map[domain.NodeID]domain.Node, len(db.nodes))
+	for k, v := range db.nodes {
+		nodes[k] = v
+	}
+	parts := make(map[domain.PartID]domain.Part, len(db.parts))
+	for k, v := range db.parts {
+		parts[k] = v
+	}
 
 	return fakeDBSnapshot{
 		users:     users,
@@ -166,6 +177,8 @@ func (db *fakeDB) snapshot() fakeDBSnapshot {
 		passwords: passwords,
 		configs:   configs,
 		outbox:    outbox,
+		nodes:     nodes,
+		parts:     parts,
 	}
 }
 
@@ -178,6 +191,8 @@ func (db *fakeDB) restore(snap fakeDBSnapshot) {
 	db.passwords = snap.passwords
 	db.configs = snap.configs
 	db.outbox = snap.outbox
+	db.nodes = snap.nodes
+	db.parts = snap.parts
 }
 
 // fakeUserStore implements contracts.UserStore. It deliberately does not
@@ -500,12 +515,11 @@ func (tx *fakeTx) Credentials() contracts.CredentialStore {
 	return &fakeCredentialStore{db: tx.db, trace: tx.trace}
 }
 
-// No application service commands the content model yet — ADR 0013's stores
-// landed with contract tests against real PostgreSQL, not with handlers on
-// top. These return nil rather than fakes nothing exercises; the first
-// handler that needs one will fail loudly here and get a real fake then.
-func (*fakeTx) Nodes() contracts.NodeStore                   { return nil }
-func (*fakeTx) Parts() contracts.PartStore                   { return nil }
+func (tx *fakeTx) Nodes() contracts.NodeStore { return &fakeNodeStore{db: tx.db, trace: tx.trace} }
+func (tx *fakeTx) Parts() contracts.PartStore { return &fakePartStore{db: tx.db, trace: tx.trace} }
+
+// Relations and SourceBindings have no command yet, so their fakes are owed
+// with the graph/identity commands. A handler reaching for one fails loudly.
 func (*fakeTx) Relations() contracts.RelationStore           { return nil }
 func (*fakeTx) SourceBindings() contracts.SourceBindingStore { return nil }
 
@@ -578,6 +592,7 @@ func newTestService(db *fakeDB, tr *trace, now time.Time) *app.Service {
 		fakePermissionStore{db: db, trace: tr},
 		&fakeNodeStore{db: db, trace: tr},
 		fakeClock{now: now},
+		&fakeIDGenerator{},
 		&fakeIDGenerator{},
 		policy.NewEngine(fakePermissionStore{db: db, trace: tr}),
 		&fakeEventPublisher{trace: tr},
@@ -734,4 +749,97 @@ func (db *fakeDB) seedNode(node domain.Node) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	db.nodes[node.ID] = node.Canonical()
+}
+
+// fakePartStore implements contracts.PartStore over fakeDB, enough for the
+// content commands: it enforces the node-is-item rule the real adapter's
+// foreign key does, so a command test sees the same InvalidArgument.
+type fakePartStore struct {
+	db    *fakeDB
+	trace *trace
+}
+
+func (s *fakePartStore) Create(_ context.Context, part domain.Part) (domain.Part, error) {
+	s.trace.record("parts.create")
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	node, ok := s.db.nodes[part.NodeID]
+	if !ok || node.Kind != domain.NodeItem {
+		return domain.Part{}, contracts.NewError(contracts.InvalidArgument, "part must attach to an existing item node")
+	}
+	s.db.parts[part.ID] = part
+	return part, nil
+}
+
+func (s *fakePartStore) FindByID(_ context.Context, id domain.PartID) (domain.Part, error) {
+	s.trace.record("parts.find_by_id")
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	part, ok := s.db.parts[id]
+	if !ok {
+		return domain.Part{}, contracts.NewError(contracts.NotFound, "part not found")
+	}
+	return part, nil
+}
+
+func (s *fakePartStore) Update(_ context.Context, part domain.Part) (domain.Part, error) {
+	s.trace.record("parts.update")
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	if _, ok := s.db.parts[part.ID]; !ok {
+		return domain.Part{}, contracts.NewError(contracts.NotFound, "part not found")
+	}
+	s.db.parts[part.ID] = part
+	return part, nil
+}
+
+func (s *fakePartStore) ListByNode(_ context.Context, nodeID domain.NodeID) ([]domain.Part, error) {
+	s.trace.record("parts.list_by_node")
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	var parts []domain.Part
+	for _, p := range s.db.parts {
+		if p.NodeID == nodeID {
+			parts = append(parts, p)
+		}
+	}
+	sort.Slice(parts, func(i, j int) bool {
+		if parts[i].NaturalOrder != parts[j].NaturalOrder {
+			return parts[i].NaturalOrder < parts[j].NaturalOrder
+		}
+		return parts[i].ID < parts[j].ID
+	})
+	return parts, nil
+}
+
+func (s *fakePartStore) Delete(_ context.Context, id domain.PartID) error {
+	s.trace.record("parts.delete")
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	if _, ok := s.db.parts[id]; !ok {
+		return contracts.NewError(contracts.NotFound, "part not found")
+	}
+	delete(s.db.parts, id)
+	return nil
+}
+
+// outboxTypes returns the event types appended to the outbox, for assertions
+// that a command emitted (or, on rollback, did not emit) its event.
+func (db *fakeDB) outboxTypes() []string {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	types := make([]string, len(db.outbox))
+	for i, e := range db.outbox {
+		types[i] = e.Type
+	}
+	return types
+}
+
+func (db *fakeDB) outboxHas(eventType string) bool {
+	for _, t := range db.outboxTypes() {
+		if t == eventType {
+			return true
+		}
+	}
+	return false
 }

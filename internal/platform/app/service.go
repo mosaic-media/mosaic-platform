@@ -27,6 +27,7 @@ type Service struct {
 	nodes            contracts.NodeStore
 	clock            contracts.Clock
 	ids              contracts.IDGenerator
+	contentIDs       contracts.IDGenerator
 	policy           policy.PolicyDecisionPoint
 	events           contracts.EventPublisher
 	passwordVerifier domain.PasswordVerifier
@@ -49,6 +50,7 @@ func NewService(
 	nodes contracts.NodeStore,
 	clock contracts.Clock,
 	ids contracts.IDGenerator,
+	contentIDs contracts.IDGenerator,
 	policyEngine policy.PolicyDecisionPoint,
 	events contracts.EventPublisher,
 	passwordVerifier domain.PasswordVerifier,
@@ -63,6 +65,7 @@ func NewService(
 		nodes:            nodes,
 		clock:            clock,
 		ids:              ids,
+		contentIDs:       contentIDs,
 		policy:           policyEngine,
 		events:           events,
 		passwordVerifier: passwordVerifier,

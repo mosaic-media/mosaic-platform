@@ -370,6 +370,7 @@ func newTestService(db *fakeDB, now time.Time) *app.Service {
 		nil,
 		fakeClock{now: now},
 		&fakeIDGenerator{},
+		&fakeIDGenerator{},
 		policy.NewEngine(fakePermissionStore{db: db}),
 		fakeEventPublisher{},
 		fakePasswordVerifier{},
