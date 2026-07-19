@@ -39,6 +39,10 @@ func NewSchema(svc *app.Service) (graphql.Schema, error) {
 			// Configuration.
 			"activeConfigVersion": activeConfigVersionField(svc),
 			"configVersion":       configVersionField(svc),
+			// Content.
+			"searchContent":       searchContentField(svc),
+			"contentNode":         contentNodeField(svc),
+			"contentByExternalId": contentByExternalIDField(svc),
 			// Auth.
 			"remoteSignInChallengeStatus": remoteSignInChallengeStatusField(),
 			// Jobs (stub — see jobs.go).
@@ -63,6 +67,13 @@ func NewSchema(svc *app.Service) (graphql.Schema, error) {
 			"draftConfigVersion":    draftConfigVersionField(svc),
 			"validateConfigVersion": validateConfigVersionField(svc),
 			"activateConfigVersion": activateConfigVersionField(svc),
+			// Content.
+			"addContentWork":        addContentWorkField(svc),
+			"addContentChild":       addContentChildField(svc),
+			"attachContentPart":     attachContentPartField(svc),
+			"relateContent":         relateContentField(svc),
+			"bindContentSource":     bindContentSourceField(svc),
+			"resolveContentBinding": resolveContentBindingField(svc),
 			// Jobs (stub — see jobs.go).
 			"retryJob": retryJobField(),
 		},
