@@ -13,11 +13,13 @@ import (
 	"time"
 
 	"github.com/mosaic-media/mosaic-platform/internal/adapters/crypto"
+	"github.com/mosaic-media/mosaic-platform/internal/composition/bootstrap"
 	"github.com/mosaic-media/mosaic-platform/internal/composition/builtin"
 	"github.com/mosaic-media/mosaic-platform/internal/modules/postgres"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/app"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/config"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/diagnostics"
+	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/events"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
 	"github.com/mosaic-media/mosaic-platform/internal/platform/runtime"
@@ -47,6 +49,34 @@ const defaultHealthAddr = ":8080"
 const apiAddrEnv = "MOSAIC_API_ADDR"
 
 const defaultAPIAddr = ":8081"
+
+// bootstrapAdminUserEnv and bootstrapAdminPasswordEnv name the credentials for
+// the optional first-run administrator. Both must be set for the bootstrap to
+// run; it is idempotent once that user exists.
+const (
+	bootstrapAdminUserEnv     = "MOSAIC_BOOTSTRAP_ADMIN_USERNAME"
+	bootstrapAdminPasswordEnv = "MOSAIC_BOOTSTRAP_ADMIN_PASSWORD"
+)
+
+// adminPermissions is the authority the bootstrapped administrator receives:
+// every action the application services check. It is assembled from the app
+// package's action constants rather than string literals so a new action is a
+// compile-time addition here, not a silently missing grant.
+func adminPermissions() []domain.Permission {
+	actions := []policy.Action{
+		app.ActionUserCreate, app.ActionUserRead, app.ActionUserList, app.ActionUserStatusUpdate,
+		app.ActionSessionCreate, app.ActionSessionRevoke,
+		app.ActionPermissionRead, app.ActionRoleCreate, app.ActionRoleGrant,
+		app.ActionConfigDraft, app.ActionConfigValidate, app.ActionConfigActivate, app.ActionConfigRead,
+		app.ActionContentCreate, app.ActionContentRead, app.ActionContentRelate,
+		app.ActionContentBind, app.ActionContentResolve,
+	}
+	perms := make([]domain.Permission, len(actions))
+	for i, a := range actions {
+		perms[i] = domain.Permission(a)
+	}
+	return perms
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -167,6 +197,28 @@ func run() error {
 	schema, err := graphqltransport.NewSchema(svc)
 	if err != nil {
 		return fmt.Errorf("build graphql schema failed: %w", err)
+	}
+
+	// Optionally seed the first administrator. There is no in-band way to
+	// grant the very first authority — every command that could is itself
+	// policy-gated — so this bridges that gap for initial setup, gated on both
+	// env vars being present and idempotent once the user exists. The password
+	// is read once and never logged.
+	if adminUser := os.Getenv(bootstrapAdminUserEnv); adminUser != "" {
+		bootCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		created, err := bootstrap.EnsureAdmin(
+			bootCtx, set.UnitOfWork, crypto.NewPasswordHasher(), set.Clock, set.IDs,
+			adminUser, os.Getenv(bootstrapAdminPasswordEnv), adminPermissions(),
+		)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("bootstrap admin failed: %w", err)
+		}
+		if created {
+			fmt.Printf("mosaic-platform: bootstrapped administrator %q\n", adminUser)
+		} else {
+			fmt.Printf("mosaic-platform: administrator %q already present\n", adminUser)
+		}
 	}
 
 	// From here on the process is a genuine long-running Supervisor
