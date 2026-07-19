@@ -3,6 +3,11 @@
 // exists. It is composition wiring, not an application service: it writes
 // through the store contracts directly rather than through a command, because
 // there is no authenticated caller yet to authorise the very first grant.
+//
+// This is a deliberate bridge (ADR 0018). The eventual owner of first-admin
+// setup is Supervisor onboarding; EnsureAdmin is the seam that flow will drive,
+// with a credential channel better than a plaintext env var. Expect this to be
+// superseded, not to live here forever.
 package bootstrap
 
 import (
