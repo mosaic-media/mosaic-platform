@@ -4,9 +4,21 @@ Mosaic is a home media center built around a single unified object model spannin
 
 ## Source of Truth
 
-This repository *implements* the Mosaic Platform. It does not define or redefine architecture, module contracts, or design decisions — those live in [`mosaic-architecture`](https://github.com/mosaic-media/mosaic-architecture), the canonical documentation repository for all Mosaic engineering guidelines (MEG), architecture canon (MAC), integration protocols (MIP), and design language/system (MDL/MDS) specifications.
+**The code in this repository is authoritative.** It decides what Mosaic is.
 
-When something here seems ambiguous or undocumented, the answer lives in `mosaic-architecture`, not in this repo. See `CLAUDE.md` for how Claude Code sessions are expected to use it.
+[`mosaic-architecture`](https://github.com/mosaic-media/mosaic-architecture) describes it and records the decisions behind it — three pages and a numbered ADR series, published at
+[mosaic-media.github.io/mosaic-architecture](https://mosaic-media.github.io/mosaic-architecture/) with a PDF of each page.
+
+If the two disagree, the documentation is wrong. Fix it there rather than
+working around it here.
+
+> The previous specification library — MEG, MAC, MIP, MDL, MDS and the rest —
+> was retired on 2026-07-19 after it grew to 200+ largely unvalidated documents
+> and began producing wrong work. It survives only at git tag
+> `pre-reset-2026-07-19` in the architecture repository. Do not cite or try to
+> read those identifiers.
+
+See `CLAUDE.md` for what is built, what is next, and the rules for working here.
 
 ## Quick Start
 
@@ -17,7 +29,7 @@ go test ./...
 
 ### Running the Platform against PostgreSQL
 
-PostgreSQL is the mandatory first storage adapter (MEG-015 §05). The process
+PostgreSQL is the mandatory first storage adapter. The process
 reads its connection string from `MOSAIC_POSTGRES_DSN`; when that variable is
 unset the process still boots but skips storage bootstrap (a bridge until the
 Configuration slice lands). When it is set, startup connects, runs schema
@@ -95,4 +107,4 @@ test/
 - **Built-in module** (`internal/modules/*`) — required infrastructure (Postgres first) that satisfies Platform contracts through the same shape a future external Module would use, but compiled in and fully trusted.
 - **External module** (future) — product/domain capability packs, discovered at runtime, independently versioned. Not part of this repo's initial scaffold.
 
-This three-tier layout is a correction to MEG-015 §02's original two-tier repository layout, made before implementation began. See `CLAUDE.md` for details and its outstanding documentation-sync status.
+This three-tier layout was corrected from an earlier two-tier one, made before implementation began. See `CLAUDE.md` for details and its outstanding documentation-sync status.
