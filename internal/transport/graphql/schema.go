@@ -63,6 +63,9 @@ func NewSchema(svc *app.Service) (graphql.Schema, error) {
 			"refreshSession": sessionRefreshField(),
 			// Users.
 			"setUserStatus": setUserStatusField(svc),
+			// Permissions.
+			"createRole": createRoleField(svc),
+			"grantRole":  grantRoleField(svc),
 			// Configuration.
 			"draftConfigVersion":    draftConfigVersionField(svc),
 			"validateConfigVersion": validateConfigVersionField(svc),
