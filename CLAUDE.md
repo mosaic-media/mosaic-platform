@@ -150,10 +150,13 @@ Then SDK extraction readiness.
   `part_role`, relation types, match methods and statuses do, so they are
   `CHECK`-constrained. `media_type`, `container_type` and `item_type` do not,
   so they are unconstrained text — a `CHECK` would make every new media type a
-  schema migration. Nothing validates the open columns, so a typo fragments a
-  library silently; a `media_types` registry is the named fix, due when
-  something other than Platform code can introduce a type. Use the `domain`
-  constants, not string literals.
+  schema migration. Open is not unguarded: stores canonicalise on write via
+  `domain.Node.Canonical()`, so `Anime Series`, `anime-series` and
+  `anime_series` are one media type — a contract obligation, not a Postgres
+  detail, and writes return the canonical value. What normalisation cannot
+  recover (`animeseries`, a misspelling) is owed to the `media_types`
+  registry landing with the reference capability. Use the `domain` constants,
+  not string literals.
 - **UUIDv7 has its own generator.** `NewIDGenerator()` stays UUIDv4 for the
   infrastructure tables; `NewUUIDv7Generator()` serves the content tables and
   is exposed as `ContractSet.ContentIDs`. Both satisfy `contracts.IDGenerator`.

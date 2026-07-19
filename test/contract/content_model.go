@@ -257,6 +257,78 @@ func RunNodeStoreContract(t *testing.T, newDeps Factory) {
 		}
 	})
 
+	// The open vocabularies are unconstrained text (ADR 0015), so spelling
+	// variants of one concept must converge on write or a library silently
+	// splits in two. Any implementation of the contract owes this.
+	t.Run("type vocabularies are stored canonically", func(t *testing.T) {
+		d := newDeps(t)
+		c := ctx(t)
+
+		// Three capabilities, three spellings, one media type.
+		for i, spelling := range []string{"Anime Series", "anime-series", "anime_series"} {
+			work := newWork(nodeID(i+1), domain.MediaType(spelling), fmt.Sprintf("Show %d", i+1), now)
+			created, err := d.Nodes.Create(c, work)
+			if err != nil {
+				t.Fatalf("Create %q: %v", spelling, err)
+			}
+			// The write returns what was actually stored.
+			if created.MediaType != domain.MediaAnimeSeries {
+				t.Fatalf("Create(%q) returned media type %q, want %q",
+					spelling, created.MediaType, domain.MediaAnimeSeries)
+			}
+			found, err := d.Nodes.FindByID(c, created.ID)
+			if err != nil {
+				t.Fatalf("FindByID: %v", err)
+			}
+			if found.MediaType != domain.MediaAnimeSeries {
+				t.Fatalf("stored %q as %q, want %q", spelling, found.MediaType, domain.MediaAnimeSeries)
+			}
+		}
+
+		// All three browse as one library rather than three.
+		works, err := d.Nodes.ListWorks(c, domain.MediaAnimeSeries)
+		if err != nil {
+			t.Fatalf("ListWorks: %v", err)
+		}
+		if len(works) != 3 {
+			t.Fatalf("ListWorks returned %d works, want all 3 spellings in one bucket", len(works))
+		}
+
+		// And a filter written the long way finds them too.
+		byVariant, err := d.Nodes.ListWorks(c, "Anime Series")
+		if err != nil {
+			t.Fatalf("ListWorks(variant): %v", err)
+		}
+		if len(byVariant) != 3 {
+			t.Fatalf("filtering by %q returned %d works, want 3", "Anime Series", len(byVariant))
+		}
+	})
+
+	t.Run("container and item types are canonical too", func(t *testing.T) {
+		d := newDeps(t)
+		c := ctx(t)
+		work := newWork(nodeID(1), domain.MediaTVSeries, "Show", now)
+		if _, err := d.Nodes.Create(c, work); err != nil {
+			t.Fatalf("Create work: %v", err)
+		}
+		season := newContainer(nodeID(2), work.ID, work.ID, domain.MediaTVSeries, "Box-Set", "Set", 1, now)
+		created, err := d.Nodes.Create(c, season)
+		if err != nil {
+			t.Fatalf("Create container: %v", err)
+		}
+		if created.ContainerType != domain.ContainerBoxSet {
+			t.Fatalf("container type = %q, want %q", created.ContainerType, domain.ContainerBoxSet)
+		}
+		item := newItem(nodeID(3), work.ID, season.ID, domain.MediaTVSeries, "Special Feature", "Extra", 1, now)
+		createdItem, err := d.Nodes.Create(c, item)
+		if err != nil {
+			t.Fatalf("Create item: %v", err)
+		}
+		if createdItem.ItemType != "special_feature" {
+			t.Fatalf("item type = %q, want special_feature", createdItem.ItemType)
+		}
+	})
+
 	t.Run("update changes fields", func(t *testing.T) {
 		d := newDeps(t)
 		c := ctx(t)

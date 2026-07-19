@@ -13,6 +13,12 @@ import (
 // Work → Container → Item without either being a special case, and it costs
 // the discipline of never assuming a node has a parent or that a work's
 // children are containers.
+//
+// Implementations must store the open type vocabularies canonically —
+// domain.Node.Canonical() — so that "Anime Series", "anime-series" and
+// "anime_series" are one media type rather than three (ADR 0015). Writes
+// return the canonical value, which may therefore differ from what was
+// passed in.
 type NodeStore interface {
 	Create(ctx context.Context, node domain.Node) (domain.Node, error)
 	FindByID(ctx context.Context, id domain.NodeID) (domain.Node, error)

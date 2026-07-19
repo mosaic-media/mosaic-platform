@@ -26,6 +26,10 @@ const nodeColumns = `id, work_id, parent_id, node_kind, media_type, container_ty
 	title, natural_order, status, external_ids, attributes, created_at, updated_at`
 
 func (s *nodeStore) Create(ctx context.Context, node domain.Node) (domain.Node, error) {
+	// Canonicalise on write rather than trusting callers, so the open
+	// vocabularies cannot fragment through a capability that spells a type
+	// differently (ADR 0015).
+	node = node.Canonical()
 	_, err := s.q.Exec(ctx,
 		`INSERT INTO nodes (id, work_id, parent_id, node_kind, media_type, container_type, item_type,
 		                    title, natural_order, status, external_ids, attributes, created_at, updated_at)
@@ -56,6 +60,7 @@ func (s *nodeStore) FindByID(ctx context.Context, id domain.NodeID) (domain.Node
 }
 
 func (s *nodeStore) Update(ctx context.Context, node domain.Node) (domain.Node, error) {
+	node = node.Canonical()
 	tag, err := s.q.Exec(ctx,
 		`UPDATE nodes SET work_id = $2, parent_id = $3, node_kind = $4, media_type = $5,
 		                  container_type = $6, item_type = $7, title = $8, natural_order = $9,
@@ -108,7 +113,9 @@ func (s *nodeStore) ListWorks(ctx context.Context, mediaType domain.MediaType) (
 		`SELECT `+nodeColumns+` FROM nodes
 		 WHERE parent_id IS NULL AND ($1 = '' OR media_type = $1)
 		 ORDER BY title, id`,
-		string(mediaType),
+		// Normalised on the way in as well as on the way out, or a caller
+		// filtering by "Anime Series" would silently match nothing.
+		string(domain.NormaliseMediaType(string(mediaType))),
 	)
 	if err != nil {
 		return nil, mapError("list works", err)

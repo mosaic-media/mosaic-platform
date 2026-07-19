@@ -1,6 +1,60 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// NormaliseTypeName reduces a media, container or item type to canonical
+// form: lowercase, with any run of separators collapsed to a single
+// underscore.
+//
+// The open vocabularies (ADR 0015) are unconstrained text, so "Anime Series",
+// "anime-series" and "anime_series" would otherwise be three distinct types
+// browsing as three separate libraries. Normalising collapses them to one.
+// It does not — and cannot — catch "animeseries" or a genuine misspelling;
+// those need the media_types registry, which lands with the reference
+// capability.
+//
+// A colon is preserved so a future module-supplied type can namespace itself
+// ("animekit:ova") without the normaliser flattening the separator.
+func NormaliseTypeName(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+
+	pendingSeparator := false
+	for _, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			r += 'a' - 'A'
+			fallthrough
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == ':':
+			// A separator only becomes an underscore once something follows
+			// it, which drops leading and trailing runs without a second pass.
+			if pendingSeparator && b.Len() > 0 {
+				b.WriteByte('_')
+			}
+			pendingSeparator = false
+			b.WriteRune(r)
+		default:
+			// Spaces, hyphens, underscores and anything else all separate.
+			// Mapping the unrecognised to a separator rather than dropping it
+			// keeps "sci-fi/anime" as sci_fi_anime instead of sci_fianime.
+			pendingSeparator = true
+		}
+	}
+	return b.String()
+}
+
+// NormaliseMediaType is NormaliseTypeName in the MediaType type, for
+// capabilities deriving a type from a provider's own vocabulary.
+func NormaliseMediaType(s string) MediaType { return MediaType(NormaliseTypeName(s)) }
+
+// NormaliseContainerType is NormaliseTypeName in the ContainerType type.
+func NormaliseContainerType(s string) ContainerType { return ContainerType(NormaliseTypeName(s)) }
+
+// NormaliseItemType is NormaliseTypeName in the ItemType type.
+func NormaliseItemType(s string) ItemType { return ItemType(NormaliseTypeName(s)) }
 
 // NodeKind is a Node's structural role in the containment tree (ADR 0013).
 // It is closed and Platform-owned: the tree has exactly these three roles,
@@ -130,6 +184,16 @@ type Node struct {
 	Attributes  []byte
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// Canonical returns a copy of the node with its open type vocabularies
+// normalised. Stores apply this on write, so what is persisted and read back
+// is canonical whichever capability wrote it.
+func (n Node) Canonical() Node {
+	n.MediaType = NormaliseMediaType(string(n.MediaType))
+	n.ContainerType = NormaliseContainerType(string(n.ContainerType))
+	n.ItemType = NormaliseItemType(string(n.ItemType))
+	return n
 }
 
 // IsRoot reports whether the node is the root Work of its tree.
