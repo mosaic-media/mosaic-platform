@@ -99,6 +99,7 @@ git history; this is the map.
 | GraphQL surface | Executable schema where every resolver body is one call into `app.Service`, enforced by a test that parses imports |
 | Diagnostics and health | Real component state, redact-by-default logging, and support bundles proven not to leak a planted secret |
 | Supervisor handoff | Five HTTP endpoints, a real serve loop, and graceful shutdown that drains the outbox — proven with a one-hour ticker so only the shutdown drain can deliver |
+| Content model | `nodes`, `parts`, `relations`, `source_bindings` in native `uuid`/UUIDv7 columns; four stores added to `Tx`; the four ADR 0013 non-uniformities pinned by contract tests |
 
 **Reverted:** uniform store resolution and its PostgreSQL follow-up, under
 ADR 0012. `Store[T]` solved for capability-owned stores, which ADR 0002 had
@@ -106,9 +107,15 @@ already ruled out. No production code ever called it.
 
 ## What is not built
 
-- **The content model.** No node tree, no relation graph, no attribute
-  storage. Every table is infrastructure; `object_records` tracks files, not
-  content. **This is the blocker.**
+- **Command handlers over the content model.** The stores exist and are
+  proven against real PostgreSQL, but no application service commands them
+  yet, so there is no validate → authenticate → authorize → transact path
+  into the graph. The `Tx` fakes in `internal/platform/app` and
+  `internal/transport/graphql` return nil for the four content stores for
+  exactly this reason.
+- **IPTV programme listings.** ADR 0013 gives them their own lightweight
+  table keyed to the channel node. An `iptv_channel` is a Node; a programme
+  that airs once is deliberately not, and that table is still unbuilt.
 - **Module permissions.** The policy engine governs *user* authority. Module
   authority is undecided.
 - **External modules.** Only the built-in shape exists.
@@ -124,30 +131,39 @@ already ruled out. No production code ever called it.
 
 ## What is next
 
-**The content model.** Designed in ADR 0013 (the object graph) and ADR 0014
-(storage authority and transaction scope). Nothing else should start first —
-a capability currently has nowhere to put an anime, which is why the reference
-capability slice has failed twice.
+**The reference capability path.** The content model landed, so a capability
+now has somewhere to put an anime — the blocker that failed that slice twice
+is gone.
 
-Scope of the slice:
+Under ADR 0012 it must prove a capability can source external metadata, search
+existing content, create nodes and relations, and publish an event, using only
+published contracts and owning no schema. That will likely want content-model
+command handlers first, since the capability should go through application
+services rather than reaching for `Tx` itself.
 
-- `nodes`, `parts`, `relations`, `source_bindings` as migrations.
-- Domain types and store contracts for each.
-- The four stores added to `Tx`. This is the first exercise of ADR 0012's rule
-  that growing the Platform's store set is deliberate Platform evolution.
-- Adapter-agnostic contract tests in `test/contract/`, run against real
-  PostgreSQL.
+Then SDK extraction readiness.
 
-Identifiers are **UUIDv7 in native `uuid` columns** — the existing
-infrastructure tables keep their `text`/UUIDv4 ids and are not migrated.
+### Notes carried out of the content-model slice
 
-Deliberately out of scope: exports, filesystem projection, streaming, the job
-queue, `LISTEN`/`NOTIFY`, and IPTV listings.
-
-After it: the reference capability path — which under ADR 0012 must now prove a
-capability can source external metadata, search existing content, create nodes
-and relations, and publish an event, using only published contracts and owning
-no schema. Then SDK extraction readiness.
+- **`media_type`, `container_type` and `item_type` are unconstrained text on
+  purpose.** A `CHECK` listing the known types would make every new media type
+  a schema migration, which is the outcome ADR 0002 and ADR 0013 exist to
+  prevent. It would also be wrong today: an artist is its own Work and
+  `artist` is not in ADR 0013's illustrative list. The Platform-owned *graph*
+  vocabulary — `node_kind`, `part_role`, relation types, match methods,
+  statuses — is closed and checked.
+- **UUIDv7 has its own generator.** `NewIDGenerator()` stays UUIDv4 for the
+  infrastructure tables; `NewUUIDv7Generator()` serves the content tables and
+  is exposed as `ContractSet.ContentIDs`. Both satisfy `contracts.IDGenerator`.
+- **SQLSTATE `23001` now maps to `Conflict`.** PostgreSQL reports an explicit
+  `ON DELETE RESTRICT` as `23001`, not `23503`; without it a refused cascading
+  delete surfaced as `Internal`.
+- **Unsettled by ADR 0013 and left unbuilt, not invented:** the fractional
+  ordering scheme at large scale (`natural_order` is stored as given and
+  nothing rebalances), relation confidence decay or reverification (edges are
+  written once, and `RelationStore` has no `Update` so that stays visible),
+  and attribute validation (JSONB is unvalidated by design; correctness
+  belongs to the writing capability).
 
 The stop point still holds: **if the reference capability needs a private
 import, the contracts are not ready to publish.**

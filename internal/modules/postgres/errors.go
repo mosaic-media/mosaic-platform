@@ -59,6 +59,14 @@ func categoryForSQLState(code string) contracts.ErrorCategory {
 		return contracts.Conflict
 	case "23503": // foreign_key_violation
 		return contracts.Conflict
+	case "23001": // restrict_violation
+		// PostgreSQL reports an explicit ON DELETE RESTRICT as 23001 rather
+		// than 23503. The content model relies on RESTRICT to refuse a
+		// cascading delete (ADR 0013: deletion is a decision a user confirms),
+		// so this arrives whenever a node still has children, parts or source
+		// bindings behind it — the state of the world conflicts with the
+		// request, exactly as for a foreign-key violation.
+		return contracts.Conflict
 	case "23514", // check_violation
 		"23502", // not_null_violation
 		"23P01": // exclusion_violation
@@ -95,4 +103,18 @@ func categoryForSQLState(code string) contracts.ErrorCategory {
 // can translate it into a resource-specific NotFound with their own message.
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
+}
+
+// violatesConstraint reports whether err is a PostgreSQL integrity violation
+// of one named constraint. The SQLSTATE class alone is too coarse where a
+// constraint encodes a rule whose Platform category differs from its class
+// default: parts_node_is_item is a foreign key, so it arrives as 23503 and
+// would otherwise map to Conflict, but attaching a Part to a work or
+// container is a malformed request rather than a race.
+func violatesConstraint(err error, name string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.ConstraintName == name
 }

@@ -38,6 +38,12 @@ func TestPostgresPassesContractSuite(t *testing.T) {
 			Config:      cs.Config,
 			Outbox:      cs.Outbox,
 			Credentials: cs.Credentials,
+
+			Nodes:          cs.Nodes,
+			Parts:          cs.Parts,
+			Relations:      cs.Relations,
+			SourceBindings: cs.SourceBindings,
+
 			SeedRoleGrant: func(c context.Context, userID domain.UserID, roleName string, perms []domain.Permission) error {
 				return seedRoleGrant(c, pool, userID, roleName, perms)
 			},

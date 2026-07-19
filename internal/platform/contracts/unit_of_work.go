@@ -11,6 +11,15 @@ type UnitOfWork interface {
 // Tx provides transaction-scoped access to Platform stores. Every store
 // reached through a single Tx participates in the same underlying
 // transaction, so state and outbox events commit atomically.
+// The set of stores is Platform-owned and closed, and this interface
+// enumerates it. Capabilities do not own stores (ADR 0012), so there is no
+// registration mechanism and nothing to resolve at runtime; growing this
+// set is deliberate Platform evolution, which is why it looks like an edit
+// to a Platform interface rather than a plugin point.
+//
+// One transaction spans one bounded context's stores plus the outbox
+// (ADR 0014). Work that crosses contexts is two transactions joined by an
+// event, not one transaction touching both.
 type Tx interface {
 	Users() UserStore
 	Sessions() SessionStore
@@ -18,4 +27,11 @@ type Tx interface {
 	Config() ConfigStore
 	Outbox() EventOutbox
 	Credentials() CredentialStore
+
+	// The content model (ADR 0013) — the first stores added to this set
+	// since it was closed.
+	Nodes() NodeStore
+	Parts() PartStore
+	Relations() RelationStore
+	SourceBindings() SourceBindingStore
 }

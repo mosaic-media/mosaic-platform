@@ -27,6 +27,12 @@ type Deps struct {
 	Outbox      contracts.EventOutbox
 	Credentials contracts.CredentialStore
 
+	// The content model (ADR 0013).
+	Nodes          contracts.NodeStore
+	Parts          contracts.PartStore
+	Relations      contracts.RelationStore
+	SourceBindings contracts.SourceBindingStore
+
 	// SeedRoleGrant seeds a role carrying perms and grants it to userID, so
 	// the read-only PermissionStore can be exercised. Optional: when nil, the
 	// permission-read contract subtest is skipped. Implementations provide it
@@ -51,6 +57,13 @@ func RunAll(t *testing.T, newDeps Factory) {
 	t.Run("OutboxAtomicity", func(t *testing.T) { RunOutboxAtomicityContract(t, newDeps) })
 	t.Run("OutboxEnvelope", func(t *testing.T) { RunOutboxEnvelopeContract(t, newDeps) })
 	t.Run("OutboxFailure", func(t *testing.T) { RunOutboxFailureContract(t, newDeps) })
+
+	t.Run("NodeStore", func(t *testing.T) { RunNodeStoreContract(t, newDeps) })
+	t.Run("PartStore", func(t *testing.T) { RunPartStoreContract(t, newDeps) })
+	t.Run("RelationStore", func(t *testing.T) { RunRelationStoreContract(t, newDeps) })
+	t.Run("SourceBindingStore", func(t *testing.T) { RunSourceBindingStoreContract(t, newDeps) })
+	t.Run("ContentNonUniformity", func(t *testing.T) { RunContentNonUniformityContract(t, newDeps) })
+	t.Run("ContentAtomicity", func(t *testing.T) { RunContentAtomicityContract(t, newDeps) })
 }
 
 func ctx(t *testing.T) context.Context {

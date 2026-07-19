@@ -43,6 +43,10 @@ func (Module) Manifest() builtin.Manifest {
 			"ConfigStore",
 			"EventOutbox",
 			"CredentialStore",
+			"NodeStore",
+			"PartStore",
+			"RelationStore",
+			"SourceBindingStore",
 			"Clock",
 			"IDGenerator",
 			"HealthProbe",
@@ -65,8 +69,17 @@ type ContractSet struct {
 	Config         contracts.ConfigStore
 	Outbox         contracts.EventOutbox
 	Credentials    contracts.CredentialStore
+	Nodes          contracts.NodeStore
+	Parts          contracts.PartStore
+	Relations      contracts.RelationStore
+	SourceBindings contracts.SourceBindingStore
 	Clock          contracts.Clock
 	IDs            contracts.IDGenerator
+	// ContentIDs generates UUIDv7 identifiers for the content model, whose
+	// tables use native uuid columns. IDs stays UUIDv4 for the
+	// infrastructure tables, which keep their text ids and are not migrated
+	// (ADR 0013).
+	ContentIDs     contracts.IDGenerator
 	Health         contracts.HealthProbe
 	HealthReporter contracts.ComponentHealthReporter
 }
@@ -111,8 +124,13 @@ func newContractSet(pool *pgxpool.Pool) *ContractSet {
 		Config:         NewConfigStore(pool),
 		Outbox:         NewEventOutbox(pool),
 		Credentials:    NewCredentialStore(pool),
+		Nodes:          NewNodeStore(pool),
+		Parts:          NewPartStore(pool),
+		Relations:      NewRelationStore(pool),
+		SourceBindings: NewSourceBindingStore(pool),
 		Clock:          NewClock(),
 		IDs:            NewIDGenerator(),
+		ContentIDs:     NewUUIDv7Generator(),
 		Health:         NewHealthProbe(pool),
 		HealthReporter: NewComponentHealthReporter(pool),
 	}

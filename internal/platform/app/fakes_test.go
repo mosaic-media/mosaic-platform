@@ -491,6 +491,15 @@ func (tx *fakeTx) Credentials() contracts.CredentialStore {
 	return &fakeCredentialStore{db: tx.db, trace: tx.trace}
 }
 
+// No application service commands the content model yet — ADR 0013's stores
+// landed with contract tests against real PostgreSQL, not with handlers on
+// top. These return nil rather than fakes nothing exercises; the first
+// handler that needs one will fail loudly here and get a real fake then.
+func (*fakeTx) Nodes() contracts.NodeStore                   { return nil }
+func (*fakeTx) Parts() contracts.PartStore                   { return nil }
+func (*fakeTx) Relations() contracts.RelationStore           { return nil }
+func (*fakeTx) SourceBindings() contracts.SourceBindingStore { return nil }
+
 // fakeUnitOfWork implements contracts.UnitOfWork with real rollback
 // semantics: it snapshots the shared fakeDB before calling fn, and
 // restores that snapshot if fn returns an error, so a test can prove

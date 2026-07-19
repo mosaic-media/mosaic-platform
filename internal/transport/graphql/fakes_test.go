@@ -315,6 +315,14 @@ func (tx fakeTx) Config() contracts.ConfigStore          { return fakeConfigStor
 func (tx fakeTx) Outbox() contracts.EventOutbox          { return fakeEventOutbox{db: tx.db} }
 func (tx fakeTx) Credentials() contracts.CredentialStore { return fakeCredentialStore{db: tx.db} }
 
+// No GraphQL resolver reaches the content model yet (ADR 0013's stores landed
+// without a transport surface), so these are nil rather than fake stores
+// nothing exercises. A resolver that starts using one fails loudly here.
+func (fakeTx) Nodes() contracts.NodeStore                   { return nil }
+func (fakeTx) Parts() contracts.PartStore                   { return nil }
+func (fakeTx) Relations() contracts.RelationStore           { return nil }
+func (fakeTx) SourceBindings() contracts.SourceBindingStore { return nil }
+
 type fakeUnitOfWork struct{ db *fakeDB }
 
 func (u fakeUnitOfWork) WithinTx(ctx context.Context, fn func(ctx context.Context, tx contracts.Tx) error) error {
