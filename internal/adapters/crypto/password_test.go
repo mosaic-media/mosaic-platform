@@ -8,7 +8,12 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// The hasher must satisfy the domain port structurally.
+// PasswordHasher must satisfy the domain.PasswordVerifier port the composition
+// root wires it into. This assertion is the compile-time proof of that, and it
+// lives in the external test package on purpose: it exercises the port without
+// the production crypto package importing domain, so the adapter stays a pure,
+// Platform-free crypto utility (see doc.go). Any type satisfying this port can
+// be swapped in at main.go in its place.
 var _ domain.PasswordVerifier = crypto.NewPasswordHasher()
 
 func TestPasswordHashVerifyRoundTrip(t *testing.T) {
