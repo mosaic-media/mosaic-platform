@@ -1,0 +1,5 @@
+# Shell scripts and git hooks must keep LF line endings, or they fail to run on
+# Unix (a CRLF shebang line breaks `/bin/sh`). Pin them regardless of a
+# contributor's core.autocrlf setting.
+*.sh text eol=lf
+.githooks/** text eol=lf
