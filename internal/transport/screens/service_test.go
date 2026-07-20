@@ -19,14 +19,18 @@ import (
 // fakeQueries stands in for the application query surface, so the screen
 // builders are tested without a full Service.
 type fakeQueries struct {
-	results      []v1.SearchResult
-	catalogs     []app.ModuleCatalog
-	items        []v1.CatalogItem
-	node         v1.Node
-	children     []v1.Node
-	gotText      string
-	gotCatalogID string
-	gotNodeID    v1.NodeID
+	results          []v1.SearchResult
+	catalogs         []app.ModuleCatalog
+	items            []v1.CatalogItem
+	node             v1.Node
+	children         []v1.Node
+	previewMeta      v1.ContentMetadata
+	previewInLibrary bool
+	previewNodeID    v1.NodeID
+	gotText          string
+	gotCatalogID     string
+	gotNodeID        v1.NodeID
+	gotPreviewRef    v1.ContentRef
 }
 
 func (f *fakeQueries) SearchAvailableContent(_ context.Context, q app.SearchAvailableContentQuery) (app.SearchAvailableContentResult, error) {
@@ -46,6 +50,11 @@ func (f *fakeQueries) ListCatalogItems(_ context.Context, q app.ListCatalogItems
 func (f *fakeQueries) GetContentNode(_ context.Context, q v1.GetContentNodeQuery) (v1.GetContentNodeResult, error) {
 	f.gotNodeID = q.NodeID
 	return v1.GetContentNodeResult{Node: f.node, Children: f.children}, nil
+}
+
+func (f *fakeQueries) PreviewContent(_ context.Context, q app.PreviewContentQuery) (app.PreviewContentResult, error) {
+	f.gotPreviewRef = q.Ref
+	return app.PreviewContentResult{Metadata: f.previewMeta, InLibrary: f.previewInLibrary, NodeID: f.previewNodeID}, nil
 }
 
 func render(t *testing.T, svc *Service, name string, params map[string]any) sdui.Node {
@@ -122,15 +131,16 @@ func TestSearchScreenRendersResultsWithVirtualAndInLibraryActions(t *testing.T) 
 		t.Fatalf("cards = %d, want 2", len(cards))
 	}
 
-	// The virtual card materialises via importContent with the ref round-tripped.
+	// The virtual card opens a detail preview, carrying its ref (materialising
+	// happens on that screen, not the card).
 	virtual := cards[0]
 	act, _ := virtual.Props["action"].(sdui.Action)
-	if act.Kind != sdui.KindInvoke || act.Mutation == nil || *act.Mutation != "importContent" {
-		t.Fatalf("virtual card action = %+v, want Invoke importContent", act)
+	if act.Kind != sdui.KindNavigate || act.Screen == nil || *act.Screen != "detail" {
+		t.Fatalf("virtual card action = %+v, want Navigate detail", act)
 	}
-	ref, _ := act.Input["ref"].(map[string]any)
+	ref, _ := act.Params["ref"].(map[string]any)
 	if ref["externalId"] != "tt1254207" || ref["provider"] != "stremio" {
-		t.Fatalf("materialise ref = %+v, want the result's ref", ref)
+		t.Fatalf("detail ref = %+v, want the result's ref", ref)
 	}
 
 	// The in-library card navigates to detail and carries a badge.
@@ -192,7 +202,7 @@ func TestCollectionsScreenEmpty(t *testing.T) {
 	}
 }
 
-func TestCatalogScreenRendersItemsWithMaterialiseAction(t *testing.T) {
+func TestCatalogScreenRendersItemsAsDetailLinks(t *testing.T) {
 	fake := &fakeQueries{items: []v1.CatalogItem{
 		{Ref: v1.ContentRef{Provider: "stremio", NativeID: "tt1254207", NativeType: "movie", MediaType: v1.MediaMovie, ExternalScheme: "imdb", ExternalID: "tt1254207"}, Title: "Blade Runner 2049", Year: 2017},
 	}}
@@ -206,8 +216,53 @@ func TestCatalogScreenRendersItemsWithMaterialiseAction(t *testing.T) {
 		t.Fatalf("cards = %d, want 1", len(cards))
 	}
 	act, _ := cards[0].Props["action"].(sdui.Action)
+	if act.Kind != sdui.KindNavigate || act.Screen == nil || *act.Screen != "detail" {
+		t.Fatalf("catalog item action = %+v, want Navigate detail", act)
+	}
+}
+
+func TestVirtualDetailShowsAddToLibrary(t *testing.T) {
+	fake := &fakeQueries{previewMeta: v1.ContentMetadata{Title: "Blade Runner 2049", Year: 2017, Overview: "A blade runner uncovers a secret."}}
+	node := render(t, &Service{content: fake}, "detail", map[string]any{"ref": map[string]any{
+		"provider": "stremio", "nativeId": "tt1254207", "nativeType": "movie",
+		"mediaType": "movie", "externalScheme": "imdb", "externalId": "tt1254207",
+	}})
+	if fake.gotPreviewRef.NativeID != "tt1254207" {
+		t.Fatalf("preview saw ref %+v, want the card's ref", fake.gotPreviewRef)
+	}
+	header, ok := find(node, sdui.TypeDetailHeader)
+	if !ok || header.Props["title"] != "Blade Runner 2049" {
+		t.Fatalf("detail header = %+v, want the previewed title", header.Props)
+	}
+	// The sole library affordance is Add to library, in the header's actions slot.
+	actions := header.Slots["actions"]
+	if len(actions) != 1 || actions[0].Props["label"] != "Add to library" {
+		t.Fatalf("header actions = %+v, want a single Add to library button", actions)
+	}
+	act, _ := actions[0].Props["action"].(sdui.Action)
 	if act.Kind != sdui.KindInvoke || act.Mutation == nil || *act.Mutation != "importContent" {
-		t.Fatalf("catalog item action = %+v, want Invoke importContent", act)
+		t.Fatalf("add action = %+v, want Invoke importContent", act)
+	}
+	ref, _ := act.Input["ref"].(map[string]any)
+	if ref["nativeId"] != "tt1254207" {
+		t.Fatalf("add ref = %+v, want the previewed ref", ref)
+	}
+}
+
+func TestVirtualDetailFallsThroughWhenAlreadyInLibrary(t *testing.T) {
+	fake := &fakeQueries{
+		previewInLibrary: true, previewNodeID: "n-9",
+		node: v1.Node{ID: "n-9", WorkID: "n-9", Kind: v1.NodeWork, MediaType: v1.MediaMovie, Title: "Already Here"},
+	}
+	node := render(t, &Service{content: fake}, "detail", map[string]any{"ref": map[string]any{
+		"provider": "stremio", "nativeId": "tt1", "nativeType": "movie",
+	}})
+	if fake.gotNodeID != "n-9" {
+		t.Fatalf("expected a library-detail read of the in-library node, got %q", fake.gotNodeID)
+	}
+	header, _ := find(node, sdui.TypeDetailHeader)
+	if header.Props["title"] != "Already Here" {
+		t.Fatalf("detail = %+v, want the library node's detail, not a preview", header.Props)
 	}
 }
 

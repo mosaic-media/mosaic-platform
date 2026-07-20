@@ -139,6 +139,17 @@ func (r *CapabilityRegistry) CatalogProvider(id string) (v1.CatalogProvider, boo
 	return p, ok
 }
 
+// MetadataProvider returns the metadata provider registered under id, if that
+// capability fills RoleMetadata.
+func (r *CapabilityRegistry) MetadataProvider(id string) (v1.MetadataProvider, bool) {
+	c, ok := r.byID[id]
+	if !ok {
+		return nil, false
+	}
+	p, ok := c.(v1.MetadataProvider)
+	return p, ok
+}
+
 // sortedIDs returns the registered ids in lexical order, the stable order every
 // enumeration uses.
 func (r *CapabilityRegistry) sortedIDs() []string {

@@ -32,11 +32,15 @@ type fakeProviderCapability struct {
 }
 
 func (c *fakeProviderCapability) Manifest() v1.Manifest {
-	return v1.Manifest{ID: c.id, Version: "0.0.1", Name: "Fake Provider", Provides: []v1.Role{v1.RoleSearch, v1.RoleCatalog}}
+	return v1.Manifest{ID: c.id, Version: "0.0.1", Name: "Fake Provider", Provides: []v1.Role{v1.RoleSearch, v1.RoleCatalog, v1.RoleMetadata}}
 }
 
 func (c *fakeProviderCapability) Import(context.Context, v1.ContentService, v1.ImportRequest) (v1.ImportResult, error) {
 	return v1.ImportResult{}, nil
+}
+
+func (c *fakeProviderCapability) Metadata(_ context.Context, req v1.MetadataRequest) (v1.ContentMetadata, error) {
+	return v1.ContentMetadata{Ref: req.Ref, Title: "Preview Title", Year: 2020, Overview: "A previewed synopsis."}, nil
 }
 
 func (c *fakeProviderCapability) Search(_ context.Context, req v1.SearchRequest) (v1.SearchResponse, error) {
@@ -188,6 +192,55 @@ func TestListCatalogItemsUnknownModule(t *testing.T) {
 	svc, _, session := providerFixture(t, cap, true)
 	_, err := svc.ListCatalogItems(context.Background(), app.ListCatalogItemsQuery{
 		Caller: v1.Caller{Session: string(session)}, ModuleID: "nope", CatalogID: "top",
+	})
+	if got := contracts.CategoryOf(err); got != contracts.NotFound {
+		t.Fatalf("category = %s, want NotFound", got)
+	}
+}
+
+func TestPreviewContentReadsMetadataForAVirtualItem(t *testing.T) {
+	cap := &fakeProviderCapability{id: "fake"}
+	svc, _, session := providerFixture(t, cap, true)
+	res, err := svc.PreviewContent(context.Background(), app.PreviewContentQuery{
+		Caller: v1.Caller{Session: string(session)},
+		Ref:    searchRef("movie", "tt1254207"),
+	})
+	if err != nil {
+		t.Fatalf("PreviewContent: %v", err)
+	}
+	if res.InLibrary {
+		t.Fatal("a not-yet-added item must not be InLibrary")
+	}
+	if res.Metadata.Title != "Preview Title" || res.Metadata.Year != 2020 {
+		t.Fatalf("metadata = %+v, want the provider's preview", res.Metadata)
+	}
+}
+
+func TestPreviewContentShortCircuitsWhenInLibrary(t *testing.T) {
+	cap := &fakeProviderCapability{id: "fake"}
+	svc, db, session := providerFixture(t, cap, true)
+	db.seedNode(v1.Node{
+		ID: "n-1", WorkID: "n-1", Kind: v1.NodeWork, MediaType: v1.MediaMovie,
+		Title: "Blade Runner 2049", Status: v1.NodeActive, ExternalIDs: []byte(`{"imdb":"tt1254207"}`),
+	})
+	res, err := svc.PreviewContent(context.Background(), app.PreviewContentQuery{
+		Caller: v1.Caller{Session: string(session)},
+		Ref:    searchRef("movie", "tt1254207"),
+	})
+	if err != nil {
+		t.Fatalf("PreviewContent: %v", err)
+	}
+	if !res.InLibrary || res.NodeID != "n-1" {
+		t.Fatalf("result = %+v, want InLibrary with node n-1", res)
+	}
+}
+
+func TestPreviewContentUnknownProviderIsNotFound(t *testing.T) {
+	cap := &fakeProviderCapability{id: "fake"}
+	svc, _, session := providerFixture(t, cap, true)
+	_, err := svc.PreviewContent(context.Background(), app.PreviewContentQuery{
+		Caller: v1.Caller{Session: string(session)},
+		Ref:    v1.ContentRef{Provider: "nope", NativeID: "x", NativeType: "movie"},
 	})
 	if got := contracts.CategoryOf(err); got != contracts.NotFound {
 		t.Fatalf("category = %s, want NotFound", got)

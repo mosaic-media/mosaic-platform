@@ -35,6 +35,7 @@ type contentQueries interface {
 	ListModuleCatalogs(context.Context, app.ListModuleCatalogsQuery) (app.ListModuleCatalogsResult, error)
 	ListCatalogItems(context.Context, app.ListCatalogItemsQuery) (app.ListCatalogItemsResult, error)
 	GetContentNode(context.Context, v1.GetContentNodeQuery) (v1.GetContentNodeResult, error)
+	PreviewContent(context.Context, app.PreviewContentQuery) (app.PreviewContentResult, error)
 }
 
 // Service renders named screens. It holds the query surface the builders read
@@ -65,15 +66,65 @@ func (s *Service) Render(ctx context.Context, name string, caller v1.Caller, par
 	}
 }
 
-// detailScreen renders a materialised library node: its header, and its direct
-// children as cards that open their own detail (one level per screen, since the
-// tree is of variable depth — ADR 0013). A film's child is its feature item; a
-// series' children are its seasons.
+// detailScreen renders a content item — either a materialised library node
+// (params.nodeId) or a virtual item not yet in the library (params.ref). Both a
+// virtual and an in-library card open this; the difference is what it shows.
 func (s *Service) detailScreen(ctx context.Context, caller v1.Caller, params map[string]any) (sdui.Node, error) {
+	if refMap, ok := params["ref"].(map[string]any); ok {
+		return s.virtualDetail(ctx, caller, refFromParam(refMap))
+	}
 	nodeID := stringParam(params, "nodeId")
 	if nodeID == "" {
-		return sdui.Node{}, contracts.NewError(contracts.InvalidArgument, "detail screen needs a nodeId param")
+		return sdui.Node{}, contracts.NewError(contracts.InvalidArgument, "detail screen needs a nodeId or ref param")
 	}
+	return s.libraryDetail(ctx, caller, nodeID)
+}
+
+// virtualDetail previews a not-yet-materialised item: its descriptive metadata,
+// and the single library affordance a virtual item has — Add to library, which
+// materialises it (ADR 0028). A ref that turns out to be in the library already
+// falls through to its real detail rather than showing a duplicate preview.
+func (s *Service) virtualDetail(ctx context.Context, caller v1.Caller, ref v1.ContentRef) (sdui.Node, error) {
+	res, err := s.content.PreviewContent(ctx, app.PreviewContentQuery{Caller: caller, Ref: ref})
+	if err != nil {
+		return sdui.Node{}, err
+	}
+	if res.InLibrary && res.NodeID != "" {
+		return s.libraryDetail(ctx, caller, string(res.NodeID))
+	}
+
+	m := res.Metadata
+	title := m.Title
+	if title == "" {
+		title = ref.NativeID
+	}
+	opts := []sdui.Option{
+		sdui.Slot("actions", sdui.Button("Add to library", "primary",
+			sdui.Invoke("importContent", map[string]any{"ref": refInput(ref)}))),
+	}
+	if m.Overview != "" {
+		opts = append(opts, sdui.Overview(m.Overview))
+	}
+	if len(m.Genres) > 0 {
+		opts = append(opts, sdui.Genres(m.Genres...))
+	}
+	if y := yearLabel(m.Year); y != "" {
+		opts = append(opts, sdui.Meta(y, string(ref.MediaType)))
+	}
+	if m.Poster != "" {
+		opts = append(opts, sdui.Poster(m.Poster))
+	}
+	if m.Backdrop != "" {
+		opts = append(opts, sdui.Backdrop(m.Backdrop))
+	}
+	return sdui.Screen(sdui.Prop("title", title), sdui.Child(sdui.DetailHeader(title, opts...))), nil
+}
+
+// libraryDetail renders a materialised node: its header, and its direct children
+// as cards that open their own detail (one level per screen, since the tree is
+// of variable depth — ADR 0013). A film's child is its feature item; a series'
+// children are its seasons.
+func (s *Service) libraryDetail(ctx context.Context, caller v1.Caller, nodeID string) (sdui.Node, error) {
 	res, err := s.content.GetContentNode(ctx, v1.GetContentNodeQuery{
 		Caller: caller, NodeID: v1.NodeID(nodeID), WithChildren: true,
 	})
@@ -93,6 +144,16 @@ func (s *Service) detailScreen(ctx context.Context, caller v1.Caller, params map
 		body = append(body, sdui.Section("Contents", sdui.Child(sdui.Grid(sdui.Child(cards...)))))
 	}
 	return sdui.Screen(sdui.Prop("title", n.Title), sdui.Child(body...)), nil
+}
+
+// refFromParam reads a ContentRef out of a screen's ref param (a decoded JSON
+// object).
+func refFromParam(m map[string]any) v1.ContentRef {
+	get := func(k string) string { s, _ := m[k].(string); return s }
+	return v1.ContentRef{
+		Provider: get("provider"), NativeID: get("nativeId"), NativeType: get("nativeType"),
+		MediaType: v1.MediaType(get("mediaType")), ExternalScheme: get("externalScheme"), ExternalID: get("externalId"),
+	}
 }
 
 // collectionsScreen is the admin's entry to curation: the collections the
@@ -201,11 +262,12 @@ func resultCard(r v1.SearchResult) sdui.Node {
 	return contentCard(r.Ref, r.Title, r.Year, r.Poster, r.InLibrary, r.NodeID)
 }
 
-// contentCard renders a virtual content item — a search result or a catalog
-// entry, which carry the same fields. An in-library item carries a badge and
-// opens its detail; a virtual one carries a materialise action that invokes
-// importContent with its ref (ADR 0028 — import is the crossing into the
-// library).
+// contentCard renders a content item — a search result or a catalog entry,
+// which carry the same fields. Both open a detail screen on click: an in-library
+// item to its node's detail, a virtual one to a preview whose sole library
+// affordance is Add to library (ADR 0028 — materialising is the deliberate act,
+// made on the detail rather than the card). An in-library item also carries a
+// badge so the two read apart at a glance.
 func contentCard(ref v1.ContentRef, title string, year int, poster string, inLibrary bool, nodeID v1.NodeID) sdui.Node {
 	opts := []sdui.Option{}
 	if y := yearLabel(year); y != "" {
@@ -220,7 +282,7 @@ func contentCard(ref v1.ContentRef, title string, year int, poster string, inLib
 			sdui.Act(sdui.Navigate("detail", map[string]any{"nodeId": string(nodeID)})),
 		)
 	} else {
-		opts = append(opts, sdui.Act(sdui.Invoke("importContent", map[string]any{"ref": refInput(ref)})))
+		opts = append(opts, sdui.Act(sdui.Navigate("detail", map[string]any{"ref": refInput(ref)})))
 	}
 	return sdui.PosterCard(title, string(ref.MediaType), opts...)
 }
