@@ -300,11 +300,16 @@ func run() error {
 	if apiAddr == "" {
 		apiAddr = defaultAPIAddr
 	}
+	liveServer := live.NewServer(svc, schema, artworkSigner.Rewrite)
 	apiMux := http.NewServeMux()
 	apiMux.Handle("/graphql", graphqltransport.Handler(schema))
 	apiMux.Handle("/artwork", artwork.Handler(artworkSigner, artwork.GuardedClient()))
-	apiMux.Handle("/live", live.Handler(svc, schema, artworkSigner.Rewrite))
+	apiMux.Handle("/live", liveServer.Handler())
 	apiServer := &http.Server{Addr: apiAddr, Handler: apiMux}
+	// On graceful shutdown, close every live socket with a "going away" status so
+	// clients reconnect rather than error (ADR 0032). http.Server.Shutdown does
+	// not drain hijacked WebSocket connections, so this hook does it explicitly.
+	apiServer.RegisterOnShutdown(liveServer.Shutdown)
 
 	// Both servers feed one error channel; whichever fails first ends the
 	// serve phase and both are shut down together below.

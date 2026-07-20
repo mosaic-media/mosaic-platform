@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -23,6 +24,15 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/transport/screens"
 	v1 "github.com/mosaic-media/mosaic-sdk/contracts/platform/v1"
 )
+
+// inputDebounce is the server-side coalescing window for search-as-you-type
+// (ADR 0032). Rapid input intents within this window collapse to a single
+// render for the latest text, so a fast typist can't fan out a request per
+// keystroke to the upstream addons (Cinemeta/Torrentio) and trip their rate
+// limits. It is the backstop the client's own debounce sits in front of, and is
+// deliberately a touch shorter than the client's ~220ms so it never adds
+// perceptible lag when the client already coalesced.
+const inputDebounce = 150 * time.Millisecond
 
 // clientMsg is an intent the client streams up.
 type clientMsg struct {
@@ -44,11 +54,32 @@ type serverMsg struct {
 	Tone    string `json:"tone,omitempty"`
 }
 
-// Handler upgrades a request to the live session. It builds its own screen
-// service over the application services (cheap — a wrapper), and holds the
-// GraphQL schema so an invoke intent reuses the existing mutation resolvers.
-func Handler(svc *app.Service, schema graphql.Schema, artwork func(string) string) http.Handler {
-	screenSvc := screens.NewService(svc, artwork)
+// Server is the live-session transport surface. It owns the screen service and
+// tracks every open session so a graceful shutdown can close them all with a
+// "going away" status — which the client treats as a reconnect, not a fault
+// (ADR 0032). Construct it once and mount Handler() on the API mux.
+type Server struct {
+	screens *screens.Service
+	schema  graphql.Schema
+
+	mu       sync.Mutex
+	sessions map[*session]struct{}
+	closed   bool
+}
+
+// NewServer wires the live transport over the application services. It builds
+// its own screen service (cheap — a wrapper), and holds the GraphQL schema so an
+// invoke intent reuses the existing mutation resolvers.
+func NewServer(svc *app.Service, schema graphql.Schema, artwork func(string) string) *Server {
+	return &Server{
+		screens:  screens.NewService(svc, artwork),
+		schema:   schema,
+		sessions: make(map[*session]struct{}),
+	}
+}
+
+// Handler upgrades a request to the live session.
+func (sv *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The dev client reaches this through the Vite proxy, so the Origin does
 		// not match the Host; skip the check (the session is still authenticated
@@ -59,13 +90,59 @@ func Handler(svc *app.Service, schema graphql.Schema, artwork func(string) strin
 		}
 		defer c.CloseNow()
 
-		s := &session{c: c, screens: screenSvc, schema: schema}
+		s := &session{c: c, screens: sv.screens, schema: sv.schema}
+		if !sv.track(s) {
+			// Shutdown is already in progress; do not start a new session.
+			_ = c.Close(websocket.StatusGoingAway, "server shutting down")
+			return
+		}
+		defer sv.untrack(s)
+
 		// A live session outlives a single request; run it against a background
 		// context that ends when the socket closes, not when r's context does.
 		if err := s.run(context.Background()); err != nil && !isClosed(err) {
 			_ = c.Close(websocket.StatusInternalError, "session ended")
 		}
 	})
+}
+
+// track registers an open session, returning false if the server is already
+// shutting down (so no new session begins mid-shutdown).
+func (sv *Server) track(s *session) bool {
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	if sv.closed {
+		return false
+	}
+	sv.sessions[s] = struct{}{}
+	return true
+}
+
+func (sv *Server) untrack(s *session) {
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	delete(sv.sessions, s)
+}
+
+// Shutdown closes every open session with a "going away" status (1001). The
+// client reads that as an intentional server departure and reconnects with
+// backoff, rather than surfacing an error — which is what lets a Supervisor
+// rolling upgrade drop its clients and have them self-heal (ADR 0032). Wire it
+// through http.Server.RegisterOnShutdown so it fires as graceful shutdown
+// begins; hijacked WebSocket connections are not otherwise drained by
+// http.Server.Shutdown.
+func (sv *Server) Shutdown() {
+	sv.mu.Lock()
+	sv.closed = true
+	open := make([]*session, 0, len(sv.sessions))
+	for s := range sv.sessions {
+		open = append(open, s)
+	}
+	sv.mu.Unlock()
+
+	for _, s := range open {
+		s.goAway()
+	}
 }
 
 type route struct {
@@ -80,6 +157,16 @@ type session struct {
 	caller  v1.Caller
 	sid     string
 	current route
+
+	// writeMu serializes all writes to the socket. The read loop and the input
+	// debounce timer (which fires on its own goroutine) both write, and the
+	// underlying connection allows only one writer at a time.
+	writeMu sync.Mutex
+
+	// input debounce state (ADR 0032's server-side coalescing).
+	inputMu    sync.Mutex
+	inputTimer *time.Timer
+	pendingIn  string
 }
 
 func (s *session) run(ctx context.Context) error {
@@ -93,6 +180,7 @@ func (s *session) run(ctx context.Context) error {
 	}
 	s.sid = hello.Session
 	s.caller = v1.CallerFromSession(hello.Session)
+	defer s.stopInput()
 
 	// Push the app shell, then the initial content.
 	if err := s.pushShell(ctx); err != nil {
@@ -111,10 +199,12 @@ func (s *session) run(ctx context.Context) error {
 			s.current = route{screen: msg.Screen, params: msg.Params}
 			s.pushContent(ctx)
 		case "input":
-			// Search-as-you-type: render the search screen for the current text.
-			// This does not become the navigation route, so clearing the field
-			// returns to whatever was open.
-			s.pushRender(ctx, "search", map[string]any{"text": msg.Value})
+			// Search-as-you-type: coalesce a burst of keystrokes and render the
+			// search screen for the latest text. This does not become the
+			// navigation route, so clearing the field returns to whatever was
+			// open. Coalescing is the ADR 0032 backstop that protects the
+			// upstream addons from a request per keystroke.
+			s.onInput(ctx, msg.Value)
 		case "invoke":
 			s.invoke(ctx, msg)
 		default:
@@ -169,7 +259,47 @@ func (s *session) invoke(ctx context.Context, msg clientMsg) {
 	s.pushContent(ctx)
 }
 
+// onInput records the latest search text and (re)arms the debounce timer, so a
+// burst of keystrokes collapses to one render for the final value. The timer
+// fires on its own goroutine, hence the write serialization in write().
+func (s *session) onInput(ctx context.Context, text string) {
+	s.inputMu.Lock()
+	defer s.inputMu.Unlock()
+	s.pendingIn = text
+	if s.inputTimer != nil {
+		s.inputTimer.Stop()
+	}
+	s.inputTimer = time.AfterFunc(inputDebounce, func() {
+		s.inputMu.Lock()
+		t := s.pendingIn
+		s.inputMu.Unlock()
+		s.pushRender(ctx, "search", map[string]any{"text": t})
+	})
+}
+
+// stopInput cancels any pending debounced render when the session ends, so the
+// timer does not fire against a closed socket.
+func (s *session) stopInput() {
+	s.inputMu.Lock()
+	defer s.inputMu.Unlock()
+	if s.inputTimer != nil {
+		s.inputTimer.Stop()
+		s.inputTimer = nil
+	}
+}
+
+// goAway closes the socket with a "going away" status so the client reconnects
+// rather than treating the drop as an error (ADR 0032). It takes the write lock
+// so it does not race an in-flight push.
+func (s *session) goAway() {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_ = s.c.Close(websocket.StatusGoingAway, "server shutting down")
+}
+
 func (s *session) write(ctx context.Context, msg serverMsg) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return wsjson.Write(wctx, s.c, msg)
