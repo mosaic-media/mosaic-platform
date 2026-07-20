@@ -9,8 +9,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	stremio "github.com/mosaic-media/mosaic-module-stremio"
 
 	"github.com/mosaic-media/mosaic-platform/internal/adapters/crypto"
 	"github.com/mosaic-media/mosaic-platform/internal/composition/bootstrap"
@@ -50,6 +53,13 @@ const apiAddrEnv = "MOSAIC_API_ADDR"
 
 const defaultAPIAddr = ":8081"
 
+// stremioAddonsEnv names the environment variable carrying the Stremio addon
+// base URLs the Stremio module sources from, comma-separated. When unset the
+// module is not registered — a module is only active if configured, the same
+// bridging pattern as the DSN above until config-driven module selection
+// exists.
+const stremioAddonsEnv = "MOSAIC_STREMIO_ADDONS"
+
 // bootstrapAdminUserEnv and bootstrapAdminPasswordEnv name the credentials for
 // the optional first-run administrator. Both must be set for the bootstrap to
 // run; it is idempotent once that user exists.
@@ -69,13 +79,38 @@ func adminPermissions() []domain.Permission {
 		app.ActionPermissionRead, app.ActionRoleCreate, app.ActionRoleGrant,
 		app.ActionConfigDraft, app.ActionConfigValidate, app.ActionConfigActivate, app.ActionConfigRead,
 		app.ActionContentCreate, app.ActionContentRead, app.ActionContentRelate,
-		app.ActionContentBind, app.ActionContentResolve,
+		app.ActionContentBind, app.ActionContentResolve, app.ActionContentImport,
 	}
 	perms := make([]domain.Permission, len(actions))
 	for i, a := range actions {
 		perms[i] = domain.Permission(a)
 	}
 	return perms
+}
+
+// registerCapabilities wires the optional-module capabilities compiled into
+// this binary into the registry the Platform routes ImportContent to. It is
+// the one place that names concrete modules — the composition-root equivalent
+// of the Build Pipeline's generated imports (ADR 0007). Modules land here as
+// they are added; the Stremio addon-source module is the first.
+func registerCapabilities(reg *app.CapabilityRegistry) {
+	// The Stremio addon-source module. It is registered only when addon URLs
+	// are configured, since a module with no addons can source nothing.
+	if addons := splitAndTrim(os.Getenv(stremioAddonsEnv)); len(addons) > 0 {
+		reg.Register(stremio.New(stremio.NewClient(nil, addons...)))
+	}
+}
+
+// splitAndTrim splits a comma-separated list, dropping empty entries and
+// surrounding whitespace.
+func splitAndTrim(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func main() {
@@ -189,10 +224,21 @@ func run() error {
 	// time the composition root constructs app.Service: every dependency it
 	// needs is already on the ContractSet, plus the ABAC policy engine, the
 	// event bus as the audit publisher, and the Argon2id password hasher.
+	// Register the optional-module capabilities the Platform can invoke. This
+	// is the composition-root stand-in for ADR 0007's build-time module
+	// selection: modules are registered here explicitly rather than discovered,
+	// until the Supervisor's Build Pipeline generates the imports.
+	capRegistry := app.NewCapabilityRegistry()
+	registerCapabilities(capRegistry)
+	for _, m := range capRegistry.Manifests() {
+		fmt.Printf("mosaic-platform: registered capability %s@%s (%s)\n", m.ID, m.Version, m.Name)
+	}
+
 	svc := app.NewService(
 		set.UnitOfWork, set.Sessions, set.Users, set.Credentials, set.Config, set.Permissions,
 		set.Nodes, set.Clock, set.IDs, set.ContentIDs,
 		policy.NewEngine(set.Permissions), bus, crypto.NewPasswordHasher(),
+		capRegistry,
 	)
 	schema, err := graphqltransport.NewSchema(svc)
 	if err != nil {

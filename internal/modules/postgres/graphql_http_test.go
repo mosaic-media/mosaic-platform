@@ -38,6 +38,7 @@ func TestGraphQLHTTPImportsAndQueriesContent(t *testing.T) {
 		cs.UnitOfWork, cs.Sessions, cs.Users, cs.Credentials, cs.Config, cs.Permissions,
 		cs.Nodes, cs.Clock, cs.IDs, cs.ContentIDs,
 		policy.NewEngine(cs.Permissions), noopPublisher{}, hasher,
+		nil, // no capabilities registered in this GraphQL HTTP test
 	)
 
 	// Seed an admin with a real password credential and the actions the flow

@@ -77,6 +77,7 @@ func NewSchema(svc *app.Service) (graphql.Schema, error) {
 			"relateContent":         relateContentField(svc),
 			"bindContentSource":     bindContentSourceField(svc),
 			"resolveContentBinding": resolveContentBindingField(svc),
+			"importContent":         importContentField(svc),
 			// Jobs (stub — see jobs.go).
 			"retryJob": retryJobField(),
 		},

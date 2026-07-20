@@ -79,8 +79,12 @@ Platform's store set is deliberate Platform evolution and should look like it.
 This is the single most surprising thing for a new session. **The content
 models and the content application-service API do not live under `internal/`.
 They were extracted into their own module** — `github.com/mosaic-media/mosaic-sdk`,
-a sibling working tree at `../mosaic-sdk`, pinned in `go.mod` at `v0.1.0` with
-no `replace` directive (ADR 0016).
+a sibling working tree at `../mosaic-sdk`, required in `go.mod` at `v0.2.0`
+(ADR 0016). **Current dev state:** `v0.2.0` (the `Capability` surface, ADR 0019)
+is committed in `../mosaic-sdk` but **not yet tagged/pushed**, so `go.mod`
+carries a local `replace github.com/mosaic-media/mosaic-sdk => ../mosaic-sdk`
+as a bridge. Publishing the release means tagging `v0.2.0`, pushing the SDK,
+and dropping that `replace` — deferred until the owner pushes.
 
 - Content types are imported as
   `v1 "github.com/mosaic-media/mosaic-sdk/contracts/platform/v1"`. `v1.Node`,
@@ -132,12 +136,15 @@ this is the map, oldest first.
 | SDK extraction | `contracts/platform/v1` moved out into `github.com/mosaic-media/mosaic-sdk` at `v0.1.0`; the Platform depends on it as an external module |
 | Runnable process | `main.go` constructs `app.Service`; GraphQL served over HTTP at `:8081/graphql` (health handoff on `:8080`); Argon2id password hasher; end-to-end HTTP test signs in and imports content |
 | Permissions management + bootstrap | `PermissionStore` gained `CreateRole`/`GrantRole` (+ commands + GraphQL mutations); `internal/composition/bootstrap.EnsureAdmin` seeds a first admin idempotently from env vars, so the binary is usable by a human |
+| Optional-module composition + invocation (ADR 0019, 0020) | The SDK gained a `Capability` interface (`Manifest()`/`Import()`) at `v0.2.0`; the Platform gained a `CapabilityRegistry`, an `ImportContent` command (action `content.import`) and an `importContent` GraphQL mutation. The **Stremio module** (`modules/stremio/`, its own Go module importing only the SDK) is statically composed in via `main.go` and invoked through the registry — sourcing movies/series from a Stremio addon and landing the tree + source binding + **`RemoteLocation` stream Parts** in PostgreSQL. Proven end to end. **The composition-and-invocation half of the extension story works.** |
 
 **Reverted long ago:** uniform store resolution (`Store[T]`) under ADR 0012.
 
 **Running it:** set `MOSAIC_POSTGRES_DSN`, and (optionally)
-`MOSAIC_BOOTSTRAP_ADMIN_USERNAME` + `MOSAIC_BOOTSTRAP_ADMIN_PASSWORD`, then
-`go run ./cmd/mosaic-platform`. It migrates, seeds the admin, serves GraphQL on
+`MOSAIC_BOOTSTRAP_ADMIN_USERNAME` + `MOSAIC_BOOTSTRAP_ADMIN_PASSWORD`, and
+(optionally) `MOSAIC_STREMIO_ADDONS` (comma-separated addon base URLs) to
+activate the Stremio module, then `go run ./cmd/mosaic-platform`. It migrates,
+seeds the admin, registers configured modules, serves GraphQL on
 `:8081/graphql` and the Supervisor handoff on `:8080`.
 
 ## What is not built
@@ -156,8 +163,17 @@ this is the map, oldest first.
   management is built; a capability acts as its invoking user (ADR 0017).
   Authority a *module* holds distinct from that user, and a system principal
   for background (no-user) work, are scoped to future ADRs.
-- **External-module composition.** Only the built-in module shape exists; how
-  a third-party module is discovered and compiled in is unbuilt.
+- **External-module *distribution*.** The optional-module *shape* now exists
+  (its own Go module importing only the SDK, statically composed and invoked —
+  the Stremio module, ADR 0019/0020). What is unbuilt is how a third-party
+  module is *discovered and selected*: the Supervisor's build-time module
+  selection and generated `imports.go` (ADR 0007), signing and trust tiers.
+  The composition root registers modules explicitly, standing in for that.
+- **Play-time stream resolution / transcoding.** The Stremio module
+  *snapshots* a stream location into a `RemoteLocation` Part at import;
+  *resolving* and transcoding those bytes at play time is a separate future
+  module (the "Remote Media" module) and is the roadmap's deferred "streaming"
+  concern. `ContentService` is import-only — it has no resolve/play surface.
 - **IPTV programme listings.** ADR 0013 gives them their own lightweight table
   keyed to the channel node; unbuilt.
 - **Jobs service.** `jobs`, `job_attempts`, `job_logs` are empty tables.
@@ -176,13 +192,15 @@ roughly in order of how cheaply they harden what exists:
 1. **Close the relation-read gap** — add `ListFrom`/`ListTo` to
    `ContentService` (and `v1`), so a capability can read the graph it writes.
    Smallest; would bump the SDK to `v0.1.1`/`v0.2.0`.
-2. **A second capability** — a different media type (music, comics) built
-   against the SDK, to stress the surface and surface what a real second
-   consumer needs before the SDK stabilises.
-3. **The module system** — the capability manifest shape, external-module
-   composition, and module-granular permissions. This unblocks the
-   `media_types` registry and genuinely third-party modules/distribution.
-   Larger; several ADRs.
+2. **A second capability/module** — a different media type (music, comics)
+   built against the SDK, to stress the surface and surface what a real second
+   consumer needs before the SDK stabilises. The Stremio module (movies + TV)
+   is the first; a second from a different angle is the next pressure test.
+3. **The rest of the module system** — the walking skeleton (ADR 0019/0020)
+   started it with a minimal `Manifest` and explicit registration; what remains
+   is growing the manifest shape, the Supervisor's build-time module *selection*
+   and distribution (signing, trust tiers), and module-granular permissions.
+   This unblocks the `media_types` registry. Larger; several ADRs.
 4. **Background work** — the job queue and a system principal, for scheduled
    metadata refresh (no user in the loop).
 
@@ -194,6 +212,27 @@ roughly in order of how cheaply they harden what exists:
   `CHECK`-constrained; `media_type`, `container_type`, `item_type` are not.
   Stores call `v1.Node.Canonical()`, a contract obligation, so `Anime Series`
   and `anime-series` are one type. Use `v1` constants, not string literals.
+- **How an optional module is composed and invoked** (ADR 0019, 0020). A
+  module is its **own Go module** outside `internal/` (the Stremio module at
+  `modules/stremio/`, module path `github.com/mosaic-media/mosaic-module-stremio`),
+  importing **only** the SDK — enforced by a boundary test and by Go itself.
+  It implements the SDK `Capability` interface. `main.go`'s
+  `registerCapabilities` constructs it and registers it into an
+  `app.CapabilityRegistry`; the platform `go.mod` reaches it by a
+  `replace => ./modules/stremio` (in-repo, so a fresh clone builds). A caller
+  invokes it through the `ImportContent` command (GraphQL `importContent`),
+  which authorises `content.import`, resolves the capability by id, and hands
+  it the `app.Service` as its `ContentService` plus the caller — so the
+  module's own writes each re-authorise as the invoking user (ADR 0017).
+  Explicit registration stands in for ADR 0007's eventual Build-Pipeline
+  `imports.go`. Distinct from `internal/modules/` (built-in, trusted, required,
+  e.g. Postgres) and `capabilities/reference/` (a package *inside* the platform
+  module, not its own).
+- **`RemoteLocation` Parts are now exercised.** The Stremio module snapshots a
+  stream URL/magnet into a Part with `Scheme: v1.RemoteLocation, Provider:
+  "stremio"` (ADR 0014's remote path, previously unused). Metadata and streams
+  are independent: a meta-only addon yields Works + tree with **no** Parts, so
+  Stremio metadata can enrich local media without adopting remote streaming.
 - **UUIDv7 for content ids.** `NewIDGenerator()` (UUIDv4) serves the
   infrastructure tables; `NewUUIDv7Generator()` (`ContractSet.ContentIDs`)
   serves the content tables. Content ids are native `uuid`; infrastructure

@@ -402,5 +402,6 @@ func newTestService(db *fakeDB, now time.Time) *app.Service {
 		policy.NewEngine(fakePermissionStore{db: db}),
 		fakeEventPublisher{},
 		fakePasswordVerifier{},
+		nil, // no capabilities registered in resolver tests
 	)
 }

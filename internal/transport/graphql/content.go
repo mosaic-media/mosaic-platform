@@ -150,6 +150,25 @@ var sourceBindingType = graphql.NewObject(graphql.ObjectConfig{
 	},
 })
 
+// importResultType projects v1.ImportResult — what invoking a capability's
+// import did, without re-reading the graph.
+var importResultType = graphql.NewObject(graphql.ObjectConfig{
+	Name: "ImportResult",
+	Fields: graphql.Fields{
+		"workId":       &graphql.Field{Type: graphql.String, Resolve: importField(func(r v1.ImportResult) interface{} { return string(r.WorkID) })},
+		"alreadyKnown": &graphql.Field{Type: graphql.Boolean, Resolve: importField(func(r v1.ImportResult) interface{} { return r.AlreadyKnown })},
+		"containers":   &graphql.Field{Type: graphql.Int, Resolve: importField(func(r v1.ImportResult) interface{} { return r.Containers })},
+		"items":        &graphql.Field{Type: graphql.Int, Resolve: importField(func(r v1.ImportResult) interface{} { return r.Items })},
+		"parts":        &graphql.Field{Type: graphql.Int, Resolve: importField(func(r v1.ImportResult) interface{} { return r.Parts })},
+	},
+})
+
+func importField(get func(v1.ImportResult) interface{}) graphql.FieldResolveFn {
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		return get(p.Source.(v1.ImportResult)), nil
+	}
+}
+
 // contentNodePayloadType wraps GetContentNodeResult: a node plus, when asked,
 // its direct children.
 var contentNodePayloadType = graphql.NewObject(graphql.ObjectConfig{
@@ -448,6 +467,32 @@ func resolveContentBindingField(svc *app.Service) *graphql.Field {
 				return nil, err
 			}
 			return result.Binding, nil
+		},
+	}
+}
+
+// importContentField invokes a registered capability by id, forwarding the
+// caller so the module acts as the invoking user (ADR 0017). Unlike the other
+// content mutations it maps to a Platform command (app.ImportContentCommand),
+// not a published v1 type: a capability is invoked by this, it does not call it.
+func importContentField(svc *app.Service) *graphql.Field {
+	return &graphql.Field{
+		Type: importResultType,
+		Args: graphql.FieldConfigArgument{
+			"callerSessionId": nonNullString(),
+			"capabilityId":    nonNullString(),
+			"query":           nonNullString(),
+		},
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			result, err := svc.ImportContent(p.Context, app.ImportContentCommand{
+				Caller:       caller(p),
+				CapabilityID: argString(p, "capabilityId"),
+				Query:        argString(p, "query"),
+			})
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
 		},
 	}
 }

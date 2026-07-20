@@ -146,6 +146,7 @@ func adminRole() domain.Role {
 			domain.Permission(app.ActionContentRelate),
 			domain.Permission(app.ActionContentBind),
 			domain.Permission(app.ActionContentResolve),
+			domain.Permission(app.ActionContentImport),
 		},
 	}
 }
@@ -639,6 +640,13 @@ func (fakePasswordVerifier) Verify(plaintext string, hash string) (bool, error) 
 }
 
 func newTestService(db *fakeDB, tr *trace, now time.Time) *app.Service {
+	return newTestServiceWithCapabilities(db, tr, now, nil)
+}
+
+// newTestServiceWithCapabilities is newTestService with a capability registry,
+// for the ImportContent path. Most tests register nothing and use the wrapper
+// above.
+func newTestServiceWithCapabilities(db *fakeDB, tr *trace, now time.Time, caps *app.CapabilityRegistry) *app.Service {
 	return app.NewService(
 		&fakeUnitOfWork{db: db, trace: tr},
 		&fakeSessionStore{db: db, trace: tr},
@@ -653,6 +661,7 @@ func newTestService(db *fakeDB, tr *trace, now time.Time) *app.Service {
 		policy.NewEngine(fakePermissionStore{db: db, trace: tr}),
 		&fakeEventPublisher{trace: tr},
 		fakePasswordVerifier{},
+		caps,
 	)
 }
 

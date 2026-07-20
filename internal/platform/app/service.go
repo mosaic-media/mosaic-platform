@@ -32,6 +32,7 @@ type Service struct {
 	policy           policy.PolicyDecisionPoint
 	events           contracts.EventPublisher
 	passwordVerifier domain.PasswordVerifier
+	capabilities     *CapabilityRegistry
 	sessionManager   *sessions.Manager
 	configManager    *config.Manager
 }
@@ -55,6 +56,7 @@ func NewService(
 	policyEngine policy.PolicyDecisionPoint,
 	events contracts.EventPublisher,
 	passwordVerifier domain.PasswordVerifier,
+	capabilities *CapabilityRegistry,
 ) *Service {
 	return &Service{
 		uow:              uow,
@@ -70,6 +72,7 @@ func NewService(
 		policy:           policyEngine,
 		events:           events,
 		passwordVerifier: passwordVerifier,
+		capabilities:     capabilities,
 		sessionManager:   sessions.NewManager(clock, ids),
 		configManager:    config.NewManager(clock, ids, config.PlatformSchema()),
 	}

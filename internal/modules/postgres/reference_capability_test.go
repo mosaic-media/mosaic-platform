@@ -54,6 +54,7 @@ func TestReferenceCapabilityAgainstPostgres(t *testing.T) {
 		cs.UnitOfWork, cs.Sessions, cs.Users, cs.Credentials, cs.Config, cs.Permissions,
 		cs.Nodes, cs.Clock, cs.IDs, cs.ContentIDs,
 		policy.NewEngine(cs.Permissions), noopPublisher{}, reversibleVerifier{},
+		nil, // the reference capability is invoked directly, not through the registry
 	)
 
 	// A user with a session and the content actions the capability performs.
