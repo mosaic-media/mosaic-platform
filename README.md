@@ -31,8 +31,8 @@ go test ./...
 
 PostgreSQL is the mandatory first storage adapter. The process
 reads its connection string from `MOSAIC_POSTGRES_DSN`; when that variable is
-unset the process still boots but skips storage bootstrap (a bridge until the
-Configuration slice lands). When it is set, startup connects, runs schema
+unset the process still boots but skips storage bootstrap. When it is set,
+startup connects, runs schema
 migrations, and **fails fast** if the schema is missing, incompatible, or
 partially applied — it will not run against a mismatched database.
 
@@ -105,9 +105,9 @@ test/
 
 - **Core Platform** (`internal/platform/*`) — fully trusted, compiled in, defines the rules everything else follows.
 - **Built-in module** (`internal/modules/*`) — required infrastructure (Postgres first) that satisfies Platform contracts through the same shape a future external Module would use, but compiled in and fully trusted.
-- **External module** (future) — product/domain capability packs, discovered at runtime, independently versioned. Not part of this repo's initial scaffold.
+- **Optional (external-shaped) module** — product/domain capability packs, each its **own Go module in its own repository**, importing only the SDK and composed into the binary (the first is [`mosaic-module-stremio`](https://github.com/mosaic-media/mosaic-module-stremio)). Runtime discovery and distribution are still future; the composition mechanism exists (ADR 0019–0021).
 
-This three-tier layout was corrected from an earlier two-tier one, made before implementation began. See `CLAUDE.md` for details and its outstanding documentation-sync status.
+See `CLAUDE.md` for the full tier model and the current state of the build.
 
 ## License
 
@@ -115,4 +115,4 @@ The Mosaic Platform is licensed under the **GNU Affero General Public License, v
 
 The AGPL protects the Platform: a modified Platform offered over a network must make its source available. The linking exception keeps the module ecosystem open — a Module that interacts with the Platform solely through the [Mosaic SDK](https://github.com/mosaic-media/mosaic-sdk) (Apache-2.0), including one compiled into a Platform binary, may be released under any license its author chooses. The exception frees the Module, not the Platform.
 
-> The linking exception is bespoke wording adapted from established exceptions (Classpath/GCC-runtime style). Have a lawyer review it before relying on it in a distribution or commercial context.
+> The linking exception is adapted from the FSF's own established exceptions — the [GPL Classpath exception](https://www.gnu.org/software/classpath/license.html) (used by OpenJDK) and the [GCC Runtime Library Exception](https://www.gnu.org/licenses/gcc-exception-3.1.html). It states the copyright holders' intent to permit module linking. It has not been individually reviewed by a lawyer, which is normal for a project this size; the practical effect if any wording were imperfect is only that modules could be more encumbered than intended, not any liability for users.
