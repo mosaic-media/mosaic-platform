@@ -46,13 +46,14 @@ func TestStremioModuleAgainstPostgres(t *testing.T) {
 	// Register the module exactly as the composition root does, then build the
 	// Service over that registry.
 	registry := app.NewCapabilityRegistry()
-	registry.Register(stremio.New(stremio.NewClient(addon.Client(), addon.URL)))
+	registry.Register(stremio.New(addon.Client()))
 
 	svc := app.NewService(
 		cs.UnitOfWork, cs.Sessions, cs.Users, cs.Credentials, cs.Config, cs.Permissions,
 		cs.Nodes, cs.Clock, cs.IDs, cs.ContentIDs,
 		policy.NewEngine(cs.Permissions), noopPublisher{}, reversibleVerifier{},
 		registry,
+		cs.ModuleSettings,
 	)
 
 	// An importer with a session and every action the invocation and the
@@ -74,12 +75,22 @@ func TestStremioModuleAgainstPostgres(t *testing.T) {
 		domain.Permission(app.ActionContentCreate),
 		domain.Permission(app.ActionContentBind),
 		domain.Permission(app.ActionContentRead),
+		domain.Permission(app.ActionModuleConfigure),
 	}
 	if err := seedRoleGrant(c, pool, user.ID, "Importer", actions); err != nil {
 		t.Fatalf("seed role: %v", err)
 	}
 
 	caller := v1.CallerFromSession(string(session.ID))
+
+	// The user configures the module with the addon to source from — the gap-1
+	// path: addons are user-managed settings (ADR 0021), not composed-in.
+	if _, err := svc.ConfigureModule(c, app.ConfigureModuleCommand{
+		Caller: caller, ModuleID: stremio.CapabilityID,
+		Settings: []byte(`{"addons":["` + addon.URL + `"]}`),
+	}); err != nil {
+		t.Fatalf("ConfigureModule: %v", err)
+	}
 
 	// Invoke the module through the Platform's generic import command.
 	result, err := svc.ImportContent(c, app.ImportContentCommand{

@@ -20,25 +20,27 @@ import (
 // recordingCapability is a fake v1.Capability that records what it was handed
 // and returns a canned result (or an error).
 type recordingCapability struct {
-	id         string
-	err        error
-	gotQuery   string
-	gotCaller  v1.Caller
-	gotService bool
+	id          string
+	err         error
+	gotQuery    string
+	gotCaller   v1.Caller
+	gotService  bool
+	gotSettings []byte
 }
 
 func (c *recordingCapability) Manifest() v1.Manifest {
 	return v1.Manifest{ID: c.id, Version: "0.0.1", Name: "Recording"}
 }
 
-func (c *recordingCapability) Import(ctx context.Context, svc v1.ContentService, caller v1.Caller, query string) (v1.ImportResult, error) {
-	c.gotQuery = query
-	c.gotCaller = caller
+func (c *recordingCapability) Import(ctx context.Context, svc v1.ContentService, req v1.ImportRequest) (v1.ImportResult, error) {
+	c.gotQuery = req.Query
+	c.gotCaller = req.Caller
 	c.gotService = svc != nil
+	c.gotSettings = req.Settings
 	if c.err != nil {
 		return v1.ImportResult{}, c.err
 	}
-	return v1.ImportResult{WorkID: v1.NodeID("work-" + query), Items: 2, Parts: 1}, nil
+	return v1.ImportResult{WorkID: v1.NodeID("work-" + req.Query), Items: 2, Parts: 1}, nil
 }
 
 func importFixture(t *testing.T, caps ...*recordingCapability) (*app.Service, *fakeDB, *trace, domain.SessionID) {
@@ -91,6 +93,9 @@ func TestImportContent(t *testing.T) {
 		}
 		if !cap.gotService {
 			t.Fatal("capability was handed a nil ContentService")
+		}
+		if string(cap.gotSettings) != "{}" {
+			t.Fatalf("capability saw settings %q, want an empty document when none configured", cap.gotSettings)
 		}
 		if !traced(tr, "events.publish:content.import.invoked") {
 			t.Fatalf("missing the import audit event: %v", tr.snapshot())

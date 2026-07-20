@@ -25,6 +25,7 @@ type Service struct {
 	credentials      contracts.CredentialStore
 	configStore      contracts.ConfigStore
 	permissions      contracts.PermissionStore
+	moduleSettings   contracts.ModuleSettingsStore
 	nodes            contracts.NodeStore
 	clock            contracts.Clock
 	ids              contracts.IDGenerator
@@ -57,6 +58,7 @@ func NewService(
 	events contracts.EventPublisher,
 	passwordVerifier domain.PasswordVerifier,
 	capabilities *CapabilityRegistry,
+	moduleSettings contracts.ModuleSettingsStore,
 ) *Service {
 	return &Service{
 		uow:              uow,
@@ -65,6 +67,7 @@ func NewService(
 		credentials:      credentials,
 		configStore:      configStore,
 		permissions:      permissions,
+		moduleSettings:   moduleSettings,
 		nodes:            nodes,
 		clock:            clock,
 		ids:              ids,

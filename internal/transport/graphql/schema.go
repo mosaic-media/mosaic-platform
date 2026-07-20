@@ -39,6 +39,8 @@ func NewSchema(svc *app.Service) (graphql.Schema, error) {
 			// Configuration.
 			"activeConfigVersion": activeConfigVersionField(svc),
 			"configVersion":       configVersionField(svc),
+			// Modules.
+			"moduleSettings": moduleSettingsField(svc),
 			// Content.
 			"searchContent":       searchContentField(svc),
 			"contentNode":         contentNodeField(svc),
@@ -78,6 +80,7 @@ func NewSchema(svc *app.Service) (graphql.Schema, error) {
 			"bindContentSource":     bindContentSourceField(svc),
 			"resolveContentBinding": resolveContentBindingField(svc),
 			"importContent":         importContentField(svc),
+			"configureModule":       configureModuleField(svc),
 			// Jobs (stub — see jobs.go).
 			"retryJob": retryJobField(),
 		},

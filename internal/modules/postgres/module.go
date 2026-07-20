@@ -73,6 +73,7 @@ type ContractSet struct {
 	Parts          contracts.PartStore
 	Relations      contracts.RelationStore
 	SourceBindings contracts.SourceBindingStore
+	ModuleSettings contracts.ModuleSettingsStore
 	Clock          contracts.Clock
 	IDs            contracts.IDGenerator
 	// ContentIDs generates UUIDv7 identifiers for the content model, whose
@@ -128,6 +129,7 @@ func newContractSet(pool *pgxpool.Pool) *ContractSet {
 		Parts:          NewPartStore(pool),
 		Relations:      NewRelationStore(pool),
 		SourceBindings: NewSourceBindingStore(pool),
+		ModuleSettings: NewModuleSettingsStore(pool),
 		Clock:          NewClock(),
 		IDs:            NewIDGenerator(),
 		ContentIDs:     NewUUIDv7Generator(),

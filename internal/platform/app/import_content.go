@@ -70,9 +70,19 @@ func (s *Service) ImportContent(ctx context.Context, cmd ImportContentCommand) (
 		return v1.ImportResult{}, contracts.NewError(contracts.NotFound, "no capability registered under id "+cmd.CapabilityID)
 	}
 
-	// 5. invoke it, forwarding the caller so it acts as the invoking user and
+	// 5. read the module's user-managed settings so it is invoked with the
+	// configuration a user set for it (ADR 0021). Absent settings read back as
+	// an empty document, never an error.
+	settings, err := s.readModuleSettings(ctx, cmd.CapabilityID)
+	if err != nil {
+		return v1.ImportResult{}, err
+	}
+
+	// 6. invoke it, forwarding the caller so it acts as the invoking user and
 	// passing the Service as the ContentService it drives.
-	result, err := capability.Import(ctx, s, cmd.Caller, cmd.Query)
+	result, err := capability.Import(ctx, s, v1.ImportRequest{
+		Caller: cmd.Caller, Query: cmd.Query, Settings: settings,
+	})
 	if err != nil {
 		return v1.ImportResult{}, err
 	}
@@ -91,4 +101,21 @@ func (s *Service) lookupCapability(id string) (v1.Capability, bool) {
 		return nil, false
 	}
 	return s.capabilities.Lookup(id)
+}
+
+// readModuleSettings returns the module's settings document, or an empty object
+// when no settings store is wired (a Service built without one) — so a
+// capability that ignores settings is unaffected.
+func (s *Service) readModuleSettings(ctx context.Context, moduleID string) ([]byte, error) {
+	if s.moduleSettings == nil {
+		return []byte("{}"), nil
+	}
+	settings, err := s.moduleSettings.Get(ctx, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	if len(settings.Settings) == 0 {
+		return []byte("{}"), nil
+	}
+	return settings.Settings, nil
 }

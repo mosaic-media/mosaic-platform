@@ -34,4 +34,9 @@ type Tx interface {
 	Parts() PartStore
 	Relations() RelationStore
 	SourceBindings() SourceBindingStore
+
+	// ModuleSettings persists an optional module's user-managed settings
+	// document (ADR 0021). It joins the set so a settings change and its
+	// outbox event commit in one transaction, like every other write.
+	ModuleSettings() ModuleSettingsStore
 }

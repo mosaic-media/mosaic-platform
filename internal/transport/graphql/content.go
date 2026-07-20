@@ -497,6 +497,61 @@ func importContentField(svc *app.Service) *graphql.Field {
 	}
 }
 
+// moduleSettingsType projects a module's settings — the id and the raw JSON
+// document, returned as a string.
+var moduleSettingsType = graphql.NewObject(graphql.ObjectConfig{
+	Name: "ModuleSettings",
+	Fields: graphql.Fields{
+		"moduleId": &graphql.Field{Type: graphql.String},
+		"settings": &graphql.Field{Type: graphql.String},
+	},
+})
+
+// configureModuleField sets an optional module's user-managed settings (ADR
+// 0021) — for the Stremio module, the addon manifest URLs a user adds.
+func configureModuleField(svc *app.Service) *graphql.Field {
+	return &graphql.Field{
+		Type: moduleSettingsType,
+		Args: graphql.FieldConfigArgument{
+			"callerSessionId": nonNullString(),
+			"moduleId":        nonNullString(),
+			"settings":        nonNullString(),
+		},
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			result, err := svc.ConfigureModule(p.Context, app.ConfigureModuleCommand{
+				Caller:   caller(p),
+				ModuleID: argString(p, "moduleId"),
+				Settings: optionalBytes(argString(p, "settings")),
+			})
+			if err != nil {
+				return nil, err
+			}
+			return map[string]interface{}{"moduleId": result.ModuleID, "settings": string(result.Settings)}, nil
+		},
+	}
+}
+
+// moduleSettingsField reads an optional module's settings.
+func moduleSettingsField(svc *app.Service) *graphql.Field {
+	return &graphql.Field{
+		Type: moduleSettingsType,
+		Args: graphql.FieldConfigArgument{
+			"callerSessionId": nonNullString(),
+			"moduleId":        nonNullString(),
+		},
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			result, err := svc.GetModuleSettings(p.Context, app.GetModuleSettingsQuery{
+				Caller:   caller(p),
+				ModuleID: argString(p, "moduleId"),
+			})
+			if err != nil {
+				return nil, err
+			}
+			return map[string]interface{}{"moduleId": result.ModuleID, "settings": string(result.Settings)}, nil
+		},
+	}
+}
+
 func nonNullString() *graphql.ArgumentConfig {
 	return &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}
 }

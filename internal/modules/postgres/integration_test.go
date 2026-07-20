@@ -85,6 +85,7 @@ func TestApplicationServicesRunAgainstPostgres(t *testing.T) {
 		noopPublisher{},
 		reversibleVerifier{},
 		nil, // no capabilities registered in this content integration test
+		cs.ModuleSettings,
 	)
 
 	// Bootstrap an authorized admin caller directly (admin user, an active

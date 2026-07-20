@@ -63,6 +63,7 @@ func TestBootstrapAdminIsUsable(t *testing.T) {
 		cs.Nodes, cs.Clock, cs.IDs, cs.ContentIDs,
 		policy.NewEngine(cs.Permissions), noopPublisher{}, hasher,
 		nil, // no capabilities registered in this bootstrap test
+		cs.ModuleSettings,
 	)
 
 	auth, err := svc.AuthenticateLocalUser(c, app.AuthenticateLocalUserCommand{

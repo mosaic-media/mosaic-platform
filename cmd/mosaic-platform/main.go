@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -53,13 +52,6 @@ const apiAddrEnv = "MOSAIC_API_ADDR"
 
 const defaultAPIAddr = ":8081"
 
-// stremioAddonsEnv names the environment variable carrying the Stremio addon
-// base URLs the Stremio module sources from, comma-separated. When unset the
-// module is not registered — a module is only active if configured, the same
-// bridging pattern as the DSN above until config-driven module selection
-// exists.
-const stremioAddonsEnv = "MOSAIC_STREMIO_ADDONS"
-
 // bootstrapAdminUserEnv and bootstrapAdminPasswordEnv name the credentials for
 // the optional first-run administrator. Both must be set for the bootstrap to
 // run; it is idempotent once that user exists.
@@ -80,6 +72,7 @@ func adminPermissions() []domain.Permission {
 		app.ActionConfigDraft, app.ActionConfigValidate, app.ActionConfigActivate, app.ActionConfigRead,
 		app.ActionContentCreate, app.ActionContentRead, app.ActionContentRelate,
 		app.ActionContentBind, app.ActionContentResolve, app.ActionContentImport,
+		app.ActionModuleConfigure, app.ActionModuleRead,
 	}
 	perms := make([]domain.Permission, len(actions))
 	for i, a := range actions {
@@ -94,23 +87,11 @@ func adminPermissions() []domain.Permission {
 // of the Build Pipeline's generated imports (ADR 0007). Modules land here as
 // they are added; the Stremio addon-source module is the first.
 func registerCapabilities(reg *app.CapabilityRegistry) {
-	// The Stremio addon-source module. It is registered only when addon URLs
-	// are configured, since a module with no addons can source nothing.
-	if addons := splitAndTrim(os.Getenv(stremioAddonsEnv)); len(addons) > 0 {
-		reg.Register(stremio.New(stremio.NewClient(nil, addons...)))
-	}
-}
-
-// splitAndTrim splits a comma-separated list, dropping empty entries and
-// surrounding whitespace.
-func splitAndTrim(s string) []string {
-	var out []string
-	for _, part := range strings.Split(s, ",") {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
+	// The Stremio addon-source module. It is always registered: the addons it
+	// sources from are user-managed settings (ADR 0021), set at runtime through
+	// configureModule rather than baked in at composition, so the module is
+	// available even before any addon is configured.
+	reg.Register(stremio.New(nil))
 }
 
 func main() {
@@ -238,7 +219,7 @@ func run() error {
 		set.UnitOfWork, set.Sessions, set.Users, set.Credentials, set.Config, set.Permissions,
 		set.Nodes, set.Clock, set.IDs, set.ContentIDs,
 		policy.NewEngine(set.Permissions), bus, crypto.NewPasswordHasher(),
-		capRegistry,
+		capRegistry, set.ModuleSettings,
 	)
 	schema, err := graphqltransport.NewSchema(svc)
 	if err != nil {

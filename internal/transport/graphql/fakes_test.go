@@ -346,10 +346,11 @@ func (tx fakeTx) Credentials() contracts.CredentialStore { return fakeCredential
 // No GraphQL resolver reaches the content model yet (ADR 0013's stores landed
 // without a transport surface), so these are nil rather than fake stores
 // nothing exercises. A resolver that starts using one fails loudly here.
-func (fakeTx) Nodes() contracts.NodeStore                   { return nil }
-func (fakeTx) Parts() contracts.PartStore                   { return nil }
-func (fakeTx) Relations() contracts.RelationStore           { return nil }
-func (fakeTx) SourceBindings() contracts.SourceBindingStore { return nil }
+func (fakeTx) Nodes() contracts.NodeStore                    { return nil }
+func (fakeTx) Parts() contracts.PartStore                    { return nil }
+func (fakeTx) Relations() contracts.RelationStore            { return nil }
+func (fakeTx) SourceBindings() contracts.SourceBindingStore  { return nil }
+func (fakeTx) ModuleSettings() contracts.ModuleSettingsStore { return nil }
 
 type fakeUnitOfWork struct{ db *fakeDB }
 
@@ -403,5 +404,6 @@ func newTestService(db *fakeDB, now time.Time) *app.Service {
 		fakeEventPublisher{},
 		fakePasswordVerifier{},
 		nil, // no capabilities registered in resolver tests
+		nil, // no module settings store in resolver tests
 	)
 }

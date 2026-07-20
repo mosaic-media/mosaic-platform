@@ -79,11 +79,12 @@ Platform's store set is deliberate Platform evolution and should look like it.
 This is the single most surprising thing for a new session. **The content
 models and the content application-service API do not live under `internal/`.
 They were extracted into their own module** — `github.com/mosaic-media/mosaic-sdk`,
-a sibling working tree at `../mosaic-sdk`, required in `go.mod` at `v0.2.0`
+a sibling working tree at `../mosaic-sdk`, required in `go.mod` at `v0.3.0`
 (ADR 0016). **Current dev state:** `v0.2.0` (the `Capability` surface, ADR 0019)
-is committed in `../mosaic-sdk` but **not yet tagged/pushed**, so `go.mod`
+and `v0.3.0` (the `ImportRequest` struct carrying module settings, ADR 0021)
+are committed in `../mosaic-sdk` but **not yet tagged/pushed**, so `go.mod`
 carries a local `replace github.com/mosaic-media/mosaic-sdk => ../mosaic-sdk`
-as a bridge. Publishing the release means tagging `v0.2.0`, pushing the SDK,
+as a bridge. Publishing the release means tagging `v0.3.0`, pushing the SDK,
 and dropping that `replace` — deferred until the owner pushes.
 
 - Content types are imported as
@@ -137,15 +138,17 @@ this is the map, oldest first.
 | Runnable process | `main.go` constructs `app.Service`; GraphQL served over HTTP at `:8081/graphql` (health handoff on `:8080`); Argon2id password hasher; end-to-end HTTP test signs in and imports content |
 | Permissions management + bootstrap | `PermissionStore` gained `CreateRole`/`GrantRole` (+ commands + GraphQL mutations); `internal/composition/bootstrap.EnsureAdmin` seeds a first admin idempotently from env vars, so the binary is usable by a human |
 | Optional-module composition + invocation (ADR 0019, 0020) | The SDK gained a `Capability` interface (`Manifest()`/`Import()`) at `v0.2.0`; the Platform gained a `CapabilityRegistry`, an `ImportContent` command (action `content.import`) and an `importContent` GraphQL mutation. The **Stremio module** (`modules/stremio/`, its own Go module importing only the SDK) is statically composed in via `main.go` and invoked through the registry — sourcing movies/series from a Stremio addon and landing the tree + source binding + **`RemoteLocation` stream Parts** in PostgreSQL. Proven end to end. **The composition-and-invocation half of the extension story works.** |
+| User-managed module settings (ADR 0021) | The first SDK gap the Stremio module surfaced. A Platform-owned `ModuleSettingsStore` (one jsonb doc per module id, on `Tx`), generic `configureModule`/`moduleSettings` commands + GraphQL (actions `module.configure`/`module.read`), and SDK `v0.3.0` handing a module its settings via `ImportRequest{Caller, Query, Settings}`. A user adds a Stremio addon by manifest URL at runtime; the module reads `{"addons":[...]}`. Retired the `MOSAIC_STREMIO_ADDONS` env bridge. |
 
 **Reverted long ago:** uniform store resolution (`Store[T]`) under ADR 0012.
 
 **Running it:** set `MOSAIC_POSTGRES_DSN`, and (optionally)
-`MOSAIC_BOOTSTRAP_ADMIN_USERNAME` + `MOSAIC_BOOTSTRAP_ADMIN_PASSWORD`, and
-(optionally) `MOSAIC_STREMIO_ADDONS` (comma-separated addon base URLs) to
-activate the Stremio module, then `go run ./cmd/mosaic-platform`. It migrates,
-seeds the admin, registers configured modules, serves GraphQL on
-`:8081/graphql` and the Supervisor handoff on `:8080`.
+`MOSAIC_BOOTSTRAP_ADMIN_USERNAME` + `MOSAIC_BOOTSTRAP_ADMIN_PASSWORD`, then
+`go run ./cmd/mosaic-platform`. It migrates, seeds the admin, registers the
+built-in modules, serves GraphQL on `:8081/graphql` and the Supervisor handoff
+on `:8080`. The Stremio module is always registered; a user adds addons at
+runtime via the `configureModule` mutation (ADR 0021) — the
+`MOSAIC_STREMIO_ADDONS` env var is retired.
 
 ## What is not built
 
@@ -201,8 +204,16 @@ roughly in order of how cheaply they harden what exists:
    is growing the manifest shape, the Supervisor's build-time module *selection*
    and distribution (signing, trust tiers), and module-granular permissions.
    This unblocks the `media_types` registry. Larger; several ADRs.
-4. **Background work** — the job queue and a system principal, for scheduled
-   metadata refresh (no user in the loop).
+4. **Module-declared cron/jobs (the second SDK gap the Stremio module found).**
+   A module needs to register recurring work the Platform runs — cleanup,
+   periodic refresh. This converges three deferred pieces: the **jobs runner**
+   (`jobs`/`job_attempts`/`job_logs` tables exist, no service; `SELECT ... FOR
+   UPDATE SKIP LOCKED` intended), a **scheduler/recurrence** layer (none yet;
+   the jobs table is one-shot), and the **system principal** (ADR 0017's named
+   gap — a no-user job has no session `Caller` to forward). SDK shape: a module
+   declares scheduled jobs (Manifest or a `Jobs()` method) with a handler; the
+   scheduler enqueues durable rows on cron; the worker dispatches to the handler
+   with a system `Caller`. Larger; its own multi-ADR slice.
 
 ### Standing facts a new session needs
 
@@ -233,6 +244,15 @@ roughly in order of how cheaply they harden what exists:
   "stremio"` (ADR 0014's remote path, previously unused). Metadata and streams
   are independent: a meta-only addon yields Works + tree with **no** Parts, so
   Stremio metadata can enrich local media without adopting remote streaming.
+- **Module settings are user-managed, opaque JSON** (ADR 0021), *not* the
+  platform Config system (which is operator config with reload classes).
+  `ModuleSettingsStore` holds one jsonb doc per module id (on `Tx`); the
+  Platform stores it uninterpreted and hands it to the module on invocation
+  (`v1.ImportRequest.Settings`); the module owns its meaning. Set via
+  `configureModule`, read via `moduleSettings`. **Modules are built to find SDK
+  gaps** — this was the first (user-entered addon URLs). The next identified gap
+  is module-declared cron/jobs, which needs the jobs runner, a scheduler, and
+  the **system principal** (ADR 0017's named gap, for no-user work).
 - **UUIDv7 for content ids.** `NewIDGenerator()` (UUIDv4) serves the
   infrastructure tables; `NewUUIDv7Generator()` (`ContractSet.ContentIDs`)
   serves the content tables. Content ids are native `uuid`; infrastructure

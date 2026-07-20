@@ -78,3 +78,9 @@ func (t *tx) Relations() contracts.RelationStore { return &relationStore{q: t.q}
 func (t *tx) SourceBindings() contracts.SourceBindingStore {
 	return &sourceBindingStore{q: t.q}
 }
+
+// ModuleSettings joins the set (ADR 0021) so a module's settings change and
+// its outbox event share the one transaction.
+func (t *tx) ModuleSettings() contracts.ModuleSettingsStore {
+	return &moduleSettingsStore{q: t.q}
+}

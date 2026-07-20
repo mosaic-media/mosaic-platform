@@ -47,8 +47,9 @@ type fakeDBSnapshot struct {
 	outbox    []domain.OutboxEvent
 	nodes     map[v1.NodeID]v1.Node
 	parts     map[v1.PartID]v1.Part
-	relations map[v1.RelationID]v1.Relation
-	bindings  map[v1.SourceBindingID]v1.SourceBinding
+	relations      map[v1.RelationID]v1.Relation
+	bindings       map[v1.SourceBindingID]v1.SourceBinding
+	moduleSettings map[string]domain.ModuleSettings
 }
 
 // fakeDB is the shared backing store behind every fake contract in this
@@ -75,8 +76,9 @@ type fakeDB struct {
 	// bindings back the graph and identity commands.
 	nodes     map[v1.NodeID]v1.Node
 	parts     map[v1.PartID]v1.Part
-	relations map[v1.RelationID]v1.Relation
-	bindings  map[v1.SourceBindingID]v1.SourceBinding
+	relations      map[v1.RelationID]v1.Relation
+	bindings       map[v1.SourceBindingID]v1.SourceBinding
+	moduleSettings map[string]domain.ModuleSettings
 }
 
 func newFakeDB() *fakeDB {
@@ -90,8 +92,9 @@ func newFakeDB() *fakeDB {
 		rolesByID: make(map[domain.RoleID]domain.Role),
 		nodes:     make(map[v1.NodeID]v1.Node),
 		parts:     make(map[v1.PartID]v1.Part),
-		relations: make(map[v1.RelationID]v1.Relation),
-		bindings:  make(map[v1.SourceBindingID]v1.SourceBinding),
+		relations:      make(map[v1.RelationID]v1.Relation),
+		bindings:       make(map[v1.SourceBindingID]v1.SourceBinding),
+		moduleSettings: make(map[string]domain.ModuleSettings),
 	}
 }
 
@@ -147,6 +150,8 @@ func adminRole() domain.Role {
 			domain.Permission(app.ActionContentBind),
 			domain.Permission(app.ActionContentResolve),
 			domain.Permission(app.ActionContentImport),
+			domain.Permission(app.ActionModuleConfigure),
+			domain.Permission(app.ActionModuleRead),
 		},
 	}
 }
@@ -192,18 +197,23 @@ func (db *fakeDB) snapshot() fakeDBSnapshot {
 	for k, v := range db.bindings {
 		bindings[k] = v
 	}
+	moduleSettings := make(map[string]domain.ModuleSettings, len(db.moduleSettings))
+	for k, v := range db.moduleSettings {
+		moduleSettings[k] = v
+	}
 
 	return fakeDBSnapshot{
-		users:     users,
-		usernames: usernames,
-		sessions:  sessions,
-		passwords: passwords,
-		configs:   configs,
-		outbox:    outbox,
-		nodes:     nodes,
-		parts:     parts,
-		relations: relations,
-		bindings:  bindings,
+		users:          users,
+		usernames:      usernames,
+		sessions:       sessions,
+		passwords:      passwords,
+		configs:        configs,
+		outbox:         outbox,
+		nodes:          nodes,
+		parts:          parts,
+		relations:      relations,
+		bindings:       bindings,
+		moduleSettings: moduleSettings,
 	}
 }
 
@@ -220,6 +230,7 @@ func (db *fakeDB) restore(snap fakeDBSnapshot) {
 	db.parts = snap.parts
 	db.relations = snap.relations
 	db.bindings = snap.bindings
+	db.moduleSettings = snap.moduleSettings
 }
 
 // fakeUserStore implements contracts.UserStore. It deliberately does not
@@ -579,6 +590,37 @@ func (tx *fakeTx) Relations() contracts.RelationStore {
 func (tx *fakeTx) SourceBindings() contracts.SourceBindingStore {
 	return &fakeSourceBindingStore{db: tx.db, trace: tx.trace}
 }
+func (tx *fakeTx) ModuleSettings() contracts.ModuleSettingsStore {
+	return &fakeModuleSettingsStore{db: tx.db, trace: tx.trace}
+}
+
+// fakeModuleSettingsStore implements contracts.ModuleSettingsStore over
+// fakeDB, backing both the direct read handle and the fakeTx write path.
+type fakeModuleSettingsStore struct {
+	db    *fakeDB
+	trace *trace
+}
+
+func (s *fakeModuleSettingsStore) Get(_ context.Context, moduleID string) (domain.ModuleSettings, error) {
+	s.trace.record("module_settings.get:" + moduleID)
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	if ms, ok := s.db.moduleSettings[moduleID]; ok {
+		return ms, nil
+	}
+	return domain.ModuleSettings{ModuleID: moduleID, Settings: []byte("{}")}, nil
+}
+
+func (s *fakeModuleSettingsStore) Set(_ context.Context, ms domain.ModuleSettings) (domain.ModuleSettings, error) {
+	s.trace.record("module_settings.set:" + ms.ModuleID)
+	if len(ms.Settings) == 0 {
+		ms.Settings = []byte("{}")
+	}
+	s.db.mu.Lock()
+	defer s.db.mu.Unlock()
+	s.db.moduleSettings[ms.ModuleID] = ms
+	return ms, nil
+}
 
 // fakeUnitOfWork implements contracts.UnitOfWork with real rollback
 // semantics: it snapshots the shared fakeDB before calling fn, and
@@ -662,6 +704,7 @@ func newTestServiceWithCapabilities(db *fakeDB, tr *trace, now time.Time, caps *
 		&fakeEventPublisher{trace: tr},
 		fakePasswordVerifier{},
 		caps,
+		&fakeModuleSettingsStore{db: db, trace: tr},
 	)
 }
 
