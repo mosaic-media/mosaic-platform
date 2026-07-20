@@ -109,6 +109,14 @@ test/
 
 See `CLAUDE.md` for the full tier model and the current state of the build.
 
+## Contributing
+
+Every Go file carries an SPDX license header, applied by a tool rather than by hand. CI (`.github/workflows/verify.yml`) verifies it on every push and pull request, so a file without the header fails the check — the failure prints the one command to fix it. To have the header added automatically before each commit, enable the local hook once:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## License
 
 The Mosaic Platform is licensed under the **GNU Affero General Public License, version 3** (see [`LICENSE`](LICENSE)), with a **Module Linking Exception** (see [`LICENSE-EXCEPTION`](LICENSE-EXCEPTION)).

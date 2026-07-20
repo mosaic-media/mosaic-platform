@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Adds the SPDX license header to any staged Go file missing it, then re-stages
+# the files it changed — so the header is in the commit and CI never fails for a
+# missing one. It only touches staged .go files, and only re-stages the ones it
+# actually modified.
+#
+# Enable it once per clone:
+#
+#	git config core.hooksPath .githooks
+#
+# This hook is a convenience. The authoritative gate is CI (.github/workflows/
+# verify.yml), which runs `licenseheader -check` on every push and pull request;
+# the hook just keeps you from hitting that failure locally.
+
+set -e
+
+# Nothing to do when no Go files are staged.
+if [ -z "$(git diff --cached --name-only --diff-filter=ACM -- '*.go')" ]; then
+	exit 0
+fi
+
+# Header the staged Go files. The NUL-delimited list is piped straight into
+# xargs -0 (never held in a shell variable, which would drop the NULs), so paths
+# with spaces survive. The tool prints "added header: <path>" for each file it
+# changed; those paths are plain and newline-delimited.
+changed=$(git diff --cached --name-only --diff-filter=ACM -z -- '*.go' \
+	| xargs -0 go run ./tools/licenseheader \
+	| sed -n 's/^added header: //p')
+
+# Re-stage only the files that gained a header.
+[ -z "$changed" ] && exit 0
+printf '%s\n' "$changed" | tr '\n' '\0' | xargs -0 git add
+printf 'licenseheader: added the SPDX header and re-staged:\n%s\n' "$changed"
