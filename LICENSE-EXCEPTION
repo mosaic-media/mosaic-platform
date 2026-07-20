@@ -1,0 +1,55 @@
+Mosaic Platform — Module Linking Exception
+
+Additional permission under GNU Affero General Public License version 3,
+section 7.
+
+The Mosaic Platform is licensed under the GNU Affero General Public License,
+version 3 (see the LICENSE file). As an additional permission under section 7
+of that license, the copyright holders of the Mosaic Platform grant the
+following exception.
+
+DEFINITIONS
+
+  "The Platform" means the Mosaic Platform, this program, as covered by the
+  GNU Affero General Public License version 3.
+
+  "The SDK" means the published Mosaic SDK contract surface, distributed at
+  github.com/mosaic-media/mosaic-sdk under the Apache License, Version 2.0.
+
+  "A Module" means a separate and independent work that interacts with the
+  Platform solely through the interfaces published in the SDK, and that does
+  not copy, incorporate, or modify any source code of the Platform that is
+  covered by the GNU Affero General Public License. A Module includes such a
+  work when it is compiled and statically linked into a Platform binary
+  through the Platform's composition mechanism.
+
+GRANT
+
+  You may combine the Platform with one or more Modules to produce a combined
+  binary, and you may convey the resulting combined work, and use it to remotely
+  interact with users through a computer network, WITHOUT the Modules
+  themselves thereby becoming subject to the GNU Affero General Public License,
+  provided that:
+
+    (a) each Module interacts with the Platform only through the interfaces
+        published in the SDK, and incorporates no Platform source code covered
+        by the GNU Affero General Public License; and
+
+    (b) you comply with the GNU Affero General Public License, version 3, in
+        full with respect to the Platform itself — including its network-use
+        requirement in section 13 — for the Platform as combined and for any
+        modifications you make to the Platform.
+
+SCOPE
+
+  This exception applies only to the combination of a Module with the Platform.
+  It does NOT grant any additional permission with respect to the Platform
+  itself: modifications to the Platform, and conveying or offering the Platform
+  over a network, remain fully governed by the GNU Affero General Public
+  License, version 3. In particular, this exception does not relieve you of the
+  obligation to offer the Corresponding Source of the Platform (including your
+  modifications to it) to users who interact with it over a network.
+
+  If you modify the Platform, you may extend this exception to your modified
+  version, but you are not obligated to do so. If you do not wish to extend the
+  exception, you may delete this exception statement from your version.

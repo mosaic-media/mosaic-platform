@@ -108,3 +108,11 @@ test/
 - **External module** (future) — product/domain capability packs, discovered at runtime, independently versioned. Not part of this repo's initial scaffold.
 
 This three-tier layout was corrected from an earlier two-tier one, made before implementation began. See `CLAUDE.md` for details and its outstanding documentation-sync status.
+
+## License
+
+The Mosaic Platform is licensed under the **GNU Affero General Public License, version 3** (see [`LICENSE`](LICENSE)), with a **Module Linking Exception** (see [`LICENSE-EXCEPTION`](LICENSE-EXCEPTION)).
+
+The AGPL protects the Platform: a modified Platform offered over a network must make its source available. The linking exception keeps the module ecosystem open — a Module that interacts with the Platform solely through the [Mosaic SDK](https://github.com/mosaic-media/mosaic-sdk) (Apache-2.0), including one compiled into a Platform binary, may be released under any license its author chooses. The exception frees the Module, not the Platform.
+
+> The linking exception is bespoke wording adapted from established exceptions (Classpath/GCC-runtime style). Have a lawyer review it before relying on it in a distribution or commercial context.
