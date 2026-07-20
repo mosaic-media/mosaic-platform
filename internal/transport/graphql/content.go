@@ -654,7 +654,12 @@ func catalogItemsField(svc *app.Service) *graphql.Field {
 // published v1 type: a capability is invoked by this, it does not call it.
 func importContentField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
-		Type: importResultType,
+		// The return type is the JSON scalar, not an object, because the SDUI
+		// runtime dispatches an Invoke as `mutation { importContent(input: $input) }`
+		// with no sub-selection (ADR 0029) — a field returning an object type
+		// would be rejected as needing one. The result's fields are carried in
+		// the JSON value instead.
+		Type: jsonScalar,
 		Args: graphql.FieldConfigArgument{
 			// callerSessionId is optional: an Invoke action authenticates by the
 			// Authorization header instead (ADR 0029). ref and input are the two
@@ -672,7 +677,13 @@ func importContentField(svc *app.Service) *graphql.Field {
 			if err != nil {
 				return nil, err
 			}
-			return result, nil
+			return map[string]interface{}{
+				"workId":       string(result.WorkID),
+				"alreadyKnown": result.AlreadyKnown,
+				"containers":   result.Containers,
+				"items":        result.Items,
+				"parts":        result.Parts,
+			}, nil
 		},
 	}
 }
