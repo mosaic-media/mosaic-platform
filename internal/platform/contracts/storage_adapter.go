@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 package contracts
 
 // StorageAdapter is the driven port through which the Platform obtains its

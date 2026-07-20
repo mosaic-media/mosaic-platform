@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package policy holds the Platform's Policy Decision Point (MEG-015 §07,
 // MEG-009 §04). It answers authorize(subject, action, resource, context)
 // and returns an allow/deny Decision. The decision point may live

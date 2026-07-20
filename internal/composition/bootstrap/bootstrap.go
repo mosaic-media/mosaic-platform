@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package bootstrap performs first-run seeding the composition root needs
 // before the Platform is usable — today, ensuring an initial administrator
 // exists. It is composition wiring, not an application service: it writes

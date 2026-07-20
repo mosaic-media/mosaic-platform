@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Command mosaic-platform is the Platform process entry point. Its
 // responsibility is dependency bootstrap only (MEG-015 §02); it must stay
 // free of business logic.

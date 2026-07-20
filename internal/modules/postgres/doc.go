@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package postgres is the built-in PostgreSQL module: the mandatory first
 // storage adapter (MEG-015 §05). It implements the Platform storage
 // contracts (UnitOfWork and the stores, plus Clock, IDGenerator and

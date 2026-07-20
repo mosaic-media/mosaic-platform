@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 package postgres
 
 import (
@@ -174,11 +178,11 @@ func (o *eventOutbox) RecordFailure(ctx context.Context, id domain.EventID, cate
 
 func scanOutboxEvent(row pgx.Row) (domain.OutboxEvent, error) {
 	var (
-		event          domain.OutboxEvent
-		id             string
-		redaction      string
-		publishedAt    *time.Time
-		nextRetryAt    *time.Time
+		event       domain.OutboxEvent
+		id          string
+		redaction   string
+		publishedAt *time.Time
+		nextRetryAt *time.Time
 	)
 	if err := row.Scan(
 		&id, &event.Type, &event.OccurredAt, &event.RecordedAt, &event.Actor, &event.TenantScope,

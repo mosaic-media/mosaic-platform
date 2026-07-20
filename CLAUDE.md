@@ -116,6 +116,7 @@ if you're changing the SDK, then tag/push a new version and bump the require.
 - Build one slice at a time, in the order defined by the roadmap. Do not start a slice whose prerequisites have not landed.
 - Each slice must pass the standing test gates in the architecture page before the next dependent slice begins.
 - Run `go build ./...` and `go test ./...` before declaring any slice done.
+- **Every Go file carries an SPDX header** (`AGPL-3.0-only`, the Platform's license). New files get it from the tool, not by hand: `go run ./tools/licenseheader` adds it to any file missing it, and `go run ./tools/licenseheader -check` (for CI or a pre-commit hook) fails if any file lacks it. Change the header text in one place — the `header` const in that tool.
 - Commit per passing slice — one commit (or focused set of commits) per slice, not one commit for the whole build sequence.
 - When ambiguity comes up, read the code first, then the three architecture documents. Do not substitute assumption for a decision. If neither answers it, say so — an honest gap is worth more than an invention that reads as settled.
 

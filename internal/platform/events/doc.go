@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package events holds the Platform's in-process Event Bus and the outbox
 // worker that drains committed outbox rows into it (MEG-015 §06 — Event
 // Backbone; MEG-015 §12 — "In-process Event Bus" slice, exit criterion

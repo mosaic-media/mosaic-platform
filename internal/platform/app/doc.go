@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package app hosts application services, transaction orchestration and
 // command handling (MEG-015 §04). Every command follows the same order:
 // validate shape, authenticate the caller, authorize through policy, open a

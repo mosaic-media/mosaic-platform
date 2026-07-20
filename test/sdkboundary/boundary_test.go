@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package sdkboundary holds the standing enforcement of ADR 0016: the
 // published contract surface must be importable and self-contained for a
 // Module built outside the Platform's module.

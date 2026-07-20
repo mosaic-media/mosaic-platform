@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package crypto holds non-module-shaped cryptographic helpers: AES-256-GCM
 // encryption and key derivation for the Secret Broker's encrypted local vault
 // fallback (internal/platform/secrets), and an Argon2id PasswordHasher.

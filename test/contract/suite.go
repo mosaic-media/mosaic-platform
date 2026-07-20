@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package contract holds behavioural contract tests that any implementation
 // of the Platform storage contracts must pass. The suite is deliberately
 // adapter-agnostic — it imports only contracts and domain, never a concrete

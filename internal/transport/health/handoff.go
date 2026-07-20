@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package health is the MEG-015 §10 Supervisor handoff HTTP transport:
 // readiness, liveness, Generation metadata, migration status and config
 // activation status. Every handler's entire body calls into

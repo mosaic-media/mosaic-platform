@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 package app
 
 import v1 "github.com/mosaic-media/mosaic-sdk/contracts/platform/v1"

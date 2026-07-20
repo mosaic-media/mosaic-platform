@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package reference is the reference capability: the thesis test of Mosaic's
 // extension model (ADR 0012). It does what a capability actually does —
 // source external metadata, search existing content, create nodes and

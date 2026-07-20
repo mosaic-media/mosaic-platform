@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package probe exercises every part of the published content surface the way
 // a capability would, so that compiling this module is a real test of the
 // surface's completeness and self-containment (ADR 0016). It imports only

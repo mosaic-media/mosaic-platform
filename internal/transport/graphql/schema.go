@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package graphql is the GraphQL command and query projection transport
 // (MEG-015 §09, §12 — GraphQL command and query surface). It is a
 // transport and projection surface only: every resolver in this package

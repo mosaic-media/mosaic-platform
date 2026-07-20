@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 package app_test
 
 import (
@@ -39,14 +43,14 @@ func (t *trace) snapshot() []string {
 // fakeDBSnapshot is a point-in-time copy of every mutable fakeDB field, so
 // fakeUnitOfWork can restore it on rollback.
 type fakeDBSnapshot struct {
-	users     map[domain.UserID]domain.User
-	usernames map[string]domain.UserID
-	sessions  map[domain.SessionID]domain.Session
-	passwords map[domain.UserID]domain.PasswordCredential
-	configs   map[domain.ConfigVersionID]domain.ConfigVersion
-	outbox    []domain.OutboxEvent
-	nodes     map[v1.NodeID]v1.Node
-	parts     map[v1.PartID]v1.Part
+	users          map[domain.UserID]domain.User
+	usernames      map[string]domain.UserID
+	sessions       map[domain.SessionID]domain.Session
+	passwords      map[domain.UserID]domain.PasswordCredential
+	configs        map[domain.ConfigVersionID]domain.ConfigVersion
+	outbox         []domain.OutboxEvent
+	nodes          map[v1.NodeID]v1.Node
+	parts          map[v1.PartID]v1.Part
 	relations      map[v1.RelationID]v1.Relation
 	bindings       map[v1.SourceBindingID]v1.SourceBinding
 	moduleSettings map[string]domain.ModuleSettings
@@ -74,8 +78,8 @@ type fakeDB struct {
 
 	// nodes and parts back the content commands and queries; relations and
 	// bindings back the graph and identity commands.
-	nodes     map[v1.NodeID]v1.Node
-	parts     map[v1.PartID]v1.Part
+	nodes          map[v1.NodeID]v1.Node
+	parts          map[v1.PartID]v1.Part
 	relations      map[v1.RelationID]v1.Relation
 	bindings       map[v1.SourceBindingID]v1.SourceBinding
 	moduleSettings map[string]domain.ModuleSettings
@@ -83,15 +87,15 @@ type fakeDB struct {
 
 func newFakeDB() *fakeDB {
 	return &fakeDB{
-		users:     make(map[domain.UserID]domain.User),
-		usernames: make(map[string]domain.UserID),
-		sessions:  make(map[domain.SessionID]domain.Session),
-		passwords: make(map[domain.UserID]domain.PasswordCredential),
-		configs:   make(map[domain.ConfigVersionID]domain.ConfigVersion),
-		roles:     make(map[domain.UserID][]domain.Role),
-		rolesByID: make(map[domain.RoleID]domain.Role),
-		nodes:     make(map[v1.NodeID]v1.Node),
-		parts:     make(map[v1.PartID]v1.Part),
+		users:          make(map[domain.UserID]domain.User),
+		usernames:      make(map[string]domain.UserID),
+		sessions:       make(map[domain.SessionID]domain.Session),
+		passwords:      make(map[domain.UserID]domain.PasswordCredential),
+		configs:        make(map[domain.ConfigVersionID]domain.ConfigVersion),
+		roles:          make(map[domain.UserID][]domain.Role),
+		rolesByID:      make(map[domain.RoleID]domain.Role),
+		nodes:          make(map[v1.NodeID]v1.Node),
+		parts:          make(map[v1.PartID]v1.Part),
 		relations:      make(map[v1.RelationID]v1.Relation),
 		bindings:       make(map[v1.SourceBindingID]v1.SourceBinding),
 		moduleSettings: make(map[string]domain.ModuleSettings),

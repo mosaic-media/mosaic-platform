@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package diagnostics aggregates real component health (registry.go),
 // writes redacted structured local logs (logger.go), and builds an
 // anonymised support bundle (support_bundle.go) — MEG-015 §09's

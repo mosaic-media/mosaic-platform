@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
 // Package runtime builds the MEG-015 §10 Supervisor handoff surface:
 // Generation metadata (metadata.go), a process Lifecycle (lifecycle.go),
 // Readiness/Liveness health (readiness.go, liveness.go), migration status
