@@ -86,6 +86,7 @@ func main() {
 			for _, m := range missing {
 				fmt.Fprintln(os.Stderr, "  "+filepath.ToSlash(m))
 			}
+			fmt.Fprintln(os.Stderr, "\nFix: run 'go run ./tools/licenseheader' (no flags) to add it, then commit.")
 			os.Exit(1)
 		}
 		return
