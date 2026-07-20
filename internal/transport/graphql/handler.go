@@ -5,8 +5,10 @@
 package graphql
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/graphql-go/graphql"
 )
@@ -16,6 +18,25 @@ type request struct {
 	Query         string                 `json:"query"`
 	OperationName string                 `json:"operationName"`
 	Variables     map[string]interface{} `json:"variables"`
+}
+
+// sessionKey keys the caller's session reference in the request context. It
+// carries the session an Authorization: Bearer header supplies, so an action
+// dispatched by a client (which sends the session as a header, not an argument)
+// still resolves to a caller. An explicit callerSessionId argument, when
+// present, wins over this — see caller().
+type sessionKey struct{}
+
+// withSession returns ctx carrying the session reference.
+func withSession(ctx context.Context, session string) context.Context {
+	return context.WithValue(ctx, sessionKey{}, session)
+}
+
+// sessionFromContext returns the session reference the Authorization header
+// supplied, or "" when none was.
+func sessionFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(sessionKey{}).(string)
+	return s
 }
 
 // Handler serves an executable schema as a GraphQL HTTP endpoint. It accepts a
@@ -42,12 +63,19 @@ func Handler(schema graphql.Schema) http.Handler {
 			return
 		}
 
+		// Carry a Bearer session into the context so header-authenticated
+		// actions resolve a caller without an explicit callerSessionId argument.
+		ctx := r.Context()
+		if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+			ctx = withSession(ctx, strings.TrimSpace(token))
+		}
+
 		result := graphql.Do(graphql.Params{
 			Schema:         schema,
 			RequestString:  req.Query,
 			OperationName:  req.OperationName,
 			VariableValues: req.Variables,
-			Context:        r.Context(),
+			Context:        ctx,
 		})
 
 		// A GraphQL execution returns HTTP 200 even when fields fail; a

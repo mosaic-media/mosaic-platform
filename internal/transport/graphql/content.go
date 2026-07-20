@@ -18,10 +18,16 @@ import (
 // capability forwards. Content models come from the published SDK
 // (contracts/platform/v1); this package maps them to GraphQL and nothing more.
 
-// caller builds the v1.Caller a content command or query carries from the
-// required callerSessionId argument.
+// caller builds the v1.Caller a content command or query carries. An explicit
+// callerSessionId argument wins; absent one, the session an Authorization:
+// Bearer header supplied (ADR 0029) is used — so an action a client dispatches,
+// which carries the session as a header rather than an argument, still resolves
+// a caller.
 func caller(p graphql.ResolveParams) v1.Caller {
-	return v1.CallerFromSession(argString(p, "callerSessionId"))
+	if sid := argString(p, "callerSessionId"); sid != "" {
+		return v1.CallerFromSession(sid)
+	}
+	return v1.CallerFromSession(sessionFromContext(p.Context))
 }
 
 func argString(p graphql.ResolveParams, name string) string {
@@ -513,14 +519,27 @@ var contentRefInputType = graphql.NewInputObject(graphql.InputObjectConfig{
 	},
 })
 
-// contentRefArg reads a ContentRefInput argument into a v1.ContentRef.
-func contentRefArg(p graphql.ResolveParams, name string) v1.ContentRef {
-	m, _ := p.Args[name].(map[string]interface{})
+// contentRefFromMap reads a ContentRef out of a decoded input map.
+func contentRefFromMap(m map[string]interface{}) v1.ContentRef {
 	get := func(k string) string { s, _ := m[k].(string); return s }
 	return v1.ContentRef{
 		Provider: get("provider"), NativeID: get("nativeId"), NativeType: get("nativeType"),
 		MediaType: v1.MediaType(get("mediaType")), ExternalScheme: get("externalScheme"), ExternalID: get("externalId"),
 	}
+}
+
+// importRef reads the content ref from either the SDUI runtime's input:{ref}
+// shape (an Invoke action, ADR 0029) or a direct ref argument.
+func importRef(p graphql.ResolveParams) v1.ContentRef {
+	if input, ok := p.Args["input"].(map[string]interface{}); ok {
+		if refMap, ok := input["ref"].(map[string]interface{}); ok {
+			return contentRefFromMap(refMap)
+		}
+	}
+	if refMap, ok := p.Args["ref"].(map[string]interface{}); ok {
+		return contentRefFromMap(refMap)
+	}
+	return v1.ContentRef{}
 }
 
 // searchResultType projects a v1.SearchResult — a virtual candidate, marked
@@ -637,13 +656,18 @@ func importContentField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: importResultType,
 		Args: graphql.FieldConfigArgument{
-			"callerSessionId": nonNullString(),
-			"ref":             &graphql.ArgumentConfig{Type: graphql.NewNonNull(contentRefInputType)},
+			// callerSessionId is optional: an Invoke action authenticates by the
+			// Authorization header instead (ADR 0029). ref and input are the two
+			// ways the ref arrives — a typed argument for a direct caller, or the
+			// runtime's input:{ref} envelope for an action.
+			"callerSessionId": &graphql.ArgumentConfig{Type: graphql.String},
+			"ref":             &graphql.ArgumentConfig{Type: contentRefInputType},
+			"input":           &graphql.ArgumentConfig{Type: jsonScalar},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			result, err := svc.ImportContent(p.Context, app.ImportContentCommand{
 				Caller: caller(p),
-				Ref:    contentRefArg(p, "ref"),
+				Ref:    importRef(p),
 			})
 			if err != nil {
 				return nil, err
