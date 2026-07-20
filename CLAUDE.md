@@ -9,7 +9,7 @@
 - **`mosaic-platform`** (this repo) — the Platform: domain, contracts, application services, the PostgreSQL module, transports, the composition root.
 - **`mosaic-architecture`** — the docs and ADRs. Push doc updates here whenever code and docs diverge.
 - **`mosaic-sdk`** — the **published contract surface**, extracted into its own module (`github.com/mosaic-media/mosaic-sdk`). This is what a Module compiles against. See "The published SDK is a separate module" below — this catches out anyone who assumes the content types are still under `internal/`.
-- **`mosaic-module-stremio`** — the **first optional module**, in its own repo exactly as a third party's would be: a Go client of the Stremio addon protocol importing only the SDK. The Platform composes it in via a `replace` to `../mosaic-module-stremio` (ADR 0019–0021). Commit and push it separately.
+- **`mosaic-module-stremio`** — the **first optional module**, in its own repo exactly as a third party's would be: a Go client of the Stremio addon protocol importing only the SDK, MIT-licensed, published at `v0.1.0`. The Platform requires it as a tagged dependency (ADR 0019–0021). Commit and push it separately.
 
 Required reading, and it is short:
 
@@ -80,13 +80,12 @@ Platform's store set is deliberate Platform evolution and should look like it.
 This is the single most surprising thing for a new session. **The content
 models and the content application-service API do not live under `internal/`.
 They were extracted into their own module** — `github.com/mosaic-media/mosaic-sdk`,
-a sibling working tree at `../mosaic-sdk`, required in `go.mod` at `v0.3.0`
-(ADR 0016). **Current dev state:** `v0.2.0` (the `Capability` surface, ADR 0019)
-and `v0.3.0` (the `ImportRequest` struct carrying module settings, ADR 0021)
-are committed in `../mosaic-sdk` but **not yet tagged/pushed**, so `go.mod`
-carries a local `replace github.com/mosaic-media/mosaic-sdk => ../mosaic-sdk`
-as a bridge. Publishing the release means tagging `v0.3.0`, pushing the SDK,
-and dropping that `replace` — deferred until the owner pushes.
+**published** and required in `go.mod` at `v0.3.0`, resolved from the module
+proxy with **no `replace`** (ADR 0016). The tags: `v0.1.0` the content surface,
+`v0.2.0` the `Capability` interface (ADR 0019), `v0.3.0` the `ImportRequest`
+carrying module settings (ADR 0021). A sibling working tree at `../mosaic-sdk`
+is still handy for local SDK work — add a `replace => ../mosaic-sdk` temporarily
+if you're changing the SDK, then tag/push a new version and bump the require.
 
 - Content types are imported as
   `v1 "github.com/mosaic-media/mosaic-sdk/contracts/platform/v1"`. `v1.Node`,
@@ -232,9 +231,8 @@ roughly in order of how cheaply they harden what exists:
   `github.com/mosaic-media/mosaic-module-stremio`), importing **only** the SDK —
   enforced by a boundary test and by Go itself. It implements the SDK
   `Capability` interface. `main.go`'s `registerCapabilities` constructs it and
-  registers it into an `app.CapabilityRegistry`; the platform `go.mod` reaches
-  it by a `replace => ../mosaic-module-stremio` (a local dev bridge until the
-  module is tagged and pushed). A caller
+  registers it into an `app.CapabilityRegistry`; the platform `go.mod` requires
+  it at a tagged version (`v0.1.0`) from the module proxy, no `replace`. A caller
   invokes it through the `ImportContent` command (GraphQL `importContent`),
   which authorises `content.import`, resolves the capability by id, and hands
   it the `app.Service` as its `ContentService` plus the caller — so the
