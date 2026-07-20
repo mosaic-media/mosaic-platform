@@ -11,7 +11,7 @@ require (
 
 require golang.org/x/crypto v0.54.0
 
-require github.com/mosaic-media/mosaic-sdui v0.1.0
+require github.com/mosaic-media/mosaic-sdui v0.2.0
 
 require github.com/coder/websocket v1.8.15
 
@@ -22,17 +22,10 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/lib/pq v1.10.9 // indirect
-	github.com/mosaic-media/mosaic-module-stremio v0.2.0
-	github.com/mosaic-media/mosaic-sdk v0.4.0
+	github.com/mosaic-media/mosaic-module-stremio v0.3.0
+	github.com/mosaic-media/mosaic-sdk v0.5.0
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 )
-
-// Local cross-repo dev (ADR 0034): build against the unreleased SDK v0.5.0 and
-// Stremio module v0.3.0. Release step: tag mosaic-sdk v0.5.0 + mosaic-module-stremio
-// v0.3.0, bump the requires, drop these replaces.
-replace github.com/mosaic-media/mosaic-sdk => ../mosaic-sdk
-replace github.com/mosaic-media/mosaic-module-stremio => ../mosaic-module-stremio
-replace github.com/mosaic-media/mosaic-sdui => ../mosaic-sdui
