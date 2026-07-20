@@ -16,6 +16,7 @@ package screens
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -56,6 +57,15 @@ func NewService(a *app.Service, artwork func(string) string) *Service {
 	return &Service{content: a, artwork: artwork}
 }
 
+// art proxies a non-empty image URL through the artwork rewriter (ADR 0030),
+// passing an empty URL and a Service built without a rewriter through unchanged.
+func (s *Service) art(u string) string {
+	if u == "" || s.artwork == nil {
+		return u
+	}
+	return s.artwork(u)
+}
+
 // Render builds the named screen for the caller, with the given params. An
 // unknown name is NotFound. The returned Node is the root the client renders.
 func (s *Service) Render(ctx context.Context, name string, caller v1.Caller, params map[string]any) (sdui.Node, error) {
@@ -75,12 +85,15 @@ func (s *Service) Render(ctx context.Context, name string, caller v1.Caller, par
 	}
 }
 
-// detailScreen renders a content item — either a materialised library node
-// (params.nodeId) or a virtual item not yet in the library (params.ref). Both a
-// virtual and an in-library card open this; the difference is what it shows.
+// detailScreen renders a rich content detail — a backdrop+logo hero, poster,
+// cast, genres and (for a series) a season selector over an episode list with
+// per-episode synopses (ADR 0034). It is ref-based and serves both planes: a
+// virtual item and an in-library one render from the same metadata, differing
+// only in the primary action. A nodeId-only navigation (no ref) falls back to
+// the structural library view, since metadata is fetched by ref.
 func (s *Service) detailScreen(ctx context.Context, caller v1.Caller, params map[string]any) (sdui.Node, error) {
 	if refMap, ok := params["ref"].(map[string]any); ok {
-		return s.virtualDetail(ctx, caller, refFromParam(refMap))
+		return s.richDetail(ctx, caller, refFromParam(refMap), params)
 	}
 	nodeID := stringParam(params, "nodeId")
 	if nodeID == "" {
@@ -89,44 +102,155 @@ func (s *Service) detailScreen(ctx context.Context, caller v1.Caller, params map
 	return s.libraryDetail(ctx, caller, nodeID)
 }
 
-// virtualDetail previews a not-yet-materialised item: its descriptive metadata,
-// and the single library affordance a virtual item has — Add to library, which
-// materialises it (ADR 0028). A ref that turns out to be in the library already
-// falls through to its real detail rather than showing a duplicate preview.
-func (s *Service) virtualDetail(ctx context.Context, caller v1.Caller, ref v1.ContentRef) (sdui.Node, error) {
+// richDetail builds the full detail for a ref (ADR 0034). It reads the ref's
+// metadata (and library status) through PreviewContent, which resolves both
+// planes, then composes: a HeroBanner (backdrop, clearlogo, meta pills, overview
+// and the primary action), the poster docked in the hero's aside, a cast rail, a
+// genre row, and for a series a SeasonSelector over the selected season's
+// episodes. Every image is routed through the artwork proxy (ADR 0030).
+func (s *Service) richDetail(ctx context.Context, caller v1.Caller, ref v1.ContentRef, params map[string]any) (sdui.Node, error) {
 	res, err := s.content.PreviewContent(ctx, app.PreviewContentQuery{Caller: caller, Ref: ref})
 	if err != nil {
 		return sdui.Node{}, err
 	}
-	if res.InLibrary && res.NodeID != "" {
-		return s.libraryDetail(ctx, caller, string(res.NodeID))
-	}
-
 	m := res.Metadata
 	title := m.Title
 	if title == "" {
 		title = ref.NativeID
 	}
-	opts := []sdui.Option{
-		sdui.Slot("actions", sdui.Button("Add to library", "primary",
-			sdui.Invoke("importContent", map[string]any{"ref": refInput(ref)}))),
+
+	// Hero meta pills: year · media type · runtime · rating.
+	var pills []string
+	if y := yearLabel(m.Year); y != "" {
+		pills = append(pills, y)
+	}
+	if mt := string(ref.MediaType); mt != "" {
+		pills = append(pills, mt)
+	}
+	if m.Runtime != "" {
+		pills = append(pills, m.Runtime)
+	}
+	if m.Rating > 0 {
+		pills = append(pills, fmt.Sprintf("★ %.1f", m.Rating))
+	}
+
+	// Primary action: Add to library (virtual) or an in-library marker.
+	var actions sdui.Option
+	if res.InLibrary {
+		actions = sdui.Slot("actions", sdui.Badge("In library", sdui.ToneSuccess))
+	} else {
+		actions = sdui.Slot("actions", sdui.Button("Add to library", "primary",
+			sdui.Invoke("importContent", map[string]any{"ref": refInput(ref)})))
+	}
+
+	heroOpts := []sdui.Option{sdui.Backdrop(s.art(m.Backdrop)), sdui.Meta(pills...), actions}
+	if m.Logo != "" {
+		heroOpts = append(heroOpts, sdui.Logo(s.art(m.Logo)))
 	}
 	if m.Overview != "" {
-		opts = append(opts, sdui.Overview(m.Overview))
-	}
-	if len(m.Genres) > 0 {
-		opts = append(opts, sdui.Genres(m.Genres...))
-	}
-	if y := yearLabel(m.Year); y != "" {
-		opts = append(opts, sdui.Meta(y, string(ref.MediaType)))
+		heroOpts = append(heroOpts, sdui.Overview(m.Overview))
 	}
 	if m.Poster != "" {
-		opts = append(opts, sdui.Poster(s.artwork(m.Poster)))
+		heroOpts = append(heroOpts, sdui.Slot("aside", posterBox(s.art(m.Poster))))
 	}
-	if m.Backdrop != "" {
-		opts = append(opts, sdui.Backdrop(s.artwork(m.Backdrop)))
+
+	body := []sdui.Node{sdui.HeroBanner(title, heroOpts...)}
+
+	if len(m.Genres) > 0 {
+		tags := make([]sdui.Node, 0, len(m.Genres))
+		for _, g := range m.Genres {
+			tags = append(tags, sdui.GenreTag(g))
+		}
+		body = append(body, sdui.Section("Genres", sdui.Child(sdui.Stack("horizontal", 2, sdui.Child(tags...)))))
 	}
-	return sdui.Screen(sdui.Prop("title", title), sdui.Child(sdui.DetailHeader(title, opts...))), nil
+
+	if len(m.Cast) > 0 {
+		chips := make([]sdui.Node, 0, len(m.Cast))
+		for _, p := range m.Cast {
+			opts := []sdui.Option{}
+			if p.Role != "" {
+				opts = append(opts, sdui.Prop("role", p.Role))
+			}
+			chips = append(chips, sdui.PersonChip(p.Name, opts...))
+		}
+		body = append(body, sdui.Section("Cast", sdui.Child(sdui.Carousel(sdui.Child(chips...)))))
+	}
+
+	if len(m.Episodes) > 0 {
+		body = append(body, s.episodesSection(ref, m.Episodes, params))
+	}
+
+	return sdui.Screen(sdui.Prop("title", title), sdui.Child(body...)), nil
+}
+
+// episodesSection builds a series' episode browser: a SeasonSelector across the
+// seasons (each switching by re-navigating with a season param) over the
+// selected season's episodes as EpisodeRows carrying the synopsis and still
+// (ADR 0034). The selected season comes from the season param, defaulting to the
+// first.
+func (s *Service) episodesSection(ref v1.ContentRef, episodes []v1.EpisodePreview, params map[string]any) sdui.Node {
+	order := make([]int, 0)
+	bySeason := make(map[int][]v1.EpisodePreview)
+	for _, e := range episodes {
+		if _, seen := bySeason[e.Season]; !seen {
+			order = append(order, e.Season)
+		}
+		bySeason[e.Season] = append(bySeason[e.Season], e)
+	}
+	// Default to the first real season, skipping a season 0 of specials when a
+	// numbered season exists; the season param overrides.
+	selected := order[0]
+	for _, n := range order {
+		if n >= 1 {
+			selected = n
+			break
+		}
+	}
+	if sv := stringParam(params, "season"); sv != "" {
+		if n, err := strconv.Atoi(sv); err == nil {
+			if _, ok := bySeason[n]; ok {
+				selected = n
+			}
+		}
+	}
+
+	seasonEntries := make([]map[string]any, 0, len(order))
+	for _, n := range order {
+		seasonEntries = append(seasonEntries, map[string]any{
+			"id":     strconv.Itoa(n),
+			"label":  fmt.Sprintf("Season %d", n),
+			"action": sdui.Navigate("detail", map[string]any{"ref": refInput(ref), "season": strconv.Itoa(n)}),
+		})
+	}
+	selector := sdui.Component(sdui.TypeSeasonSelector,
+		sdui.Prop("seasons", seasonEntries), sdui.Prop("selected", strconv.Itoa(selected)))
+
+	rows := make([]sdui.Node, 0, len(bySeason[selected]))
+	for _, e := range bySeason[selected] {
+		opts := []sdui.Option{sdui.Prop("index", strconv.Itoa(e.Episode))}
+		if e.Overview != "" {
+			opts = append(opts, sdui.Overview(e.Overview))
+		}
+		if e.Thumbnail != "" {
+			opts = append(opts, sdui.Prop("thumbnail", s.art(e.Thumbnail)))
+		}
+		rows = append(rows, sdui.EpisodeRow(e.Title, opts...))
+	}
+	return sdui.Section("Episodes",
+		sdui.Child(selector, sdui.Stack("vertical", 3, sdui.Child(rows...))))
+}
+
+// posterBox docks a poster image (its natural 2:3) into a hero's aside slot.
+func posterBox(url string) sdui.Node {
+	return sdui.Component("Box",
+		sdui.Prop("style", map[string]any{
+			"width": 168, "aspectRatio": "2 / 3", "radius": "md",
+			"overflow": "hidden", "bg": "surface-raised", "shadow": "2",
+		}),
+		sdui.Child(sdui.Component("Image",
+			sdui.Prop("src", url), sdui.Prop("placeholder", " "),
+			sdui.Prop("style", map[string]any{"width": "full", "height": "full"}))),
+	)
 }
 
 // libraryDetail renders a materialised node: its header, and its direct children
@@ -312,16 +436,15 @@ func (s *Service) contentCard(ref v1.ContentRef, title string, year int, poster 
 		opts = append(opts, sdui.Subtitle(y))
 	}
 	if poster != "" {
-		opts = append(opts, sdui.Poster(s.artwork(poster)))
+		opts = append(opts, sdui.Poster(s.art(poster)))
 	}
+	// Both planes open the same ref-based rich detail (ADR 0034); PreviewContent
+	// resolves in-library from the ref, so the detail shows the right action. An
+	// in-library card also carries a badge so the two read apart on the grid.
 	if inLibrary {
-		opts = append(opts,
-			sdui.BadgeText("In library"),
-			sdui.Act(sdui.Navigate("detail", map[string]any{"nodeId": string(nodeID)})),
-		)
-	} else {
-		opts = append(opts, sdui.Act(sdui.Navigate("detail", map[string]any{"ref": refInput(ref)})))
+		opts = append(opts, sdui.BadgeText("In library"))
 	}
+	opts = append(opts, sdui.Act(sdui.Navigate("detail", map[string]any{"ref": refInput(ref)})))
 	return sdui.PosterCard(title, string(ref.MediaType), opts...)
 }
 

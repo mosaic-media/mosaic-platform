@@ -29,3 +29,10 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 )
+
+// Local cross-repo dev (ADR 0034): build against the unreleased SDK v0.5.0 and
+// Stremio module v0.3.0. Release step: tag mosaic-sdk v0.5.0 + mosaic-module-stremio
+// v0.3.0, bump the requires, drop these replaces.
+replace github.com/mosaic-media/mosaic-sdk => ../mosaic-sdk
+replace github.com/mosaic-media/mosaic-module-stremio => ../mosaic-module-stremio
+replace github.com/mosaic-media/mosaic-sdui => ../mosaic-sdui

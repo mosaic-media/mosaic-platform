@@ -21,19 +21,25 @@ type PreviewContentQuery struct {
 	Ref    v1.ContentRef
 }
 
-// PreviewContentResult carries the previewed metadata, or — when the ref already
-// resolves to a library Work — a signal to show the library detail instead.
+// PreviewContentResult carries the previewed metadata, plus whether the ref
+// already resolves to a library Work (and that Work's node id). The metadata is
+// filled for a virtual and an in-library ref alike (ADR 0034), so one ref-based
+// detail builder serves both planes; InLibrary only switches the primary action.
 type PreviewContentResult struct {
 	Metadata  v1.ContentMetadata
 	InLibrary bool
 	NodeID    v1.NodeID
 }
 
-// PreviewContent reads a virtual item's descriptive metadata through the
-// MetadataProvider the ref names (ADR 0027's RoleMetadata, used here for a
-// read rather than a materialise). It first checks the library: a ref that is
-// already materialised returns InLibrary with its node id, so a caller can show
-// the real detail rather than a duplicate preview. Nothing here writes.
+// PreviewContent reads a ref's descriptive metadata through the MetadataProvider
+// the ref names (ADR 0027's RoleMetadata, used here for a read rather than a
+// materialise), and reports whether the ref already resolves to a library Work.
+// It resolves both regardless of plane (ADR 0034): a detail screen renders from
+// the metadata whether the item is virtual or in-library, and reads InLibrary
+// only to choose between an Add-to-library action and an in-library marker. A
+// library item's detail is therefore re-derived live from the provider rather
+// than read from stored fields — as current as the source, at the cost of
+// needing a reachable metadata addon. Nothing here writes.
 func (s *Service) PreviewContent(ctx context.Context, q PreviewContentQuery) (PreviewContentResult, error) {
 	if q.Caller.Session == "" {
 		return PreviewContentResult{}, contracts.NewError(contracts.InvalidArgument, "caller is required")
@@ -50,10 +56,10 @@ func (s *Service) PreviewContent(ctx context.Context, q PreviewContentQuery) (Pr
 		return PreviewContentResult{}, err
 	}
 
-	// Already in the library? Then there is nothing virtual to preview.
-	if inLib, nodeID := s.resolveInLibrary(ctx, q.Caller, q.Ref); inLib {
-		return PreviewContentResult{InLibrary: true, NodeID: nodeID}, nil
-	}
+	// Resolve the library plane, but do not short-circuit: an in-library ref
+	// still gets its metadata below, so its detail is as rich as a virtual one
+	// (ADR 0034). InLibrary only changes the primary action the caller renders.
+	inLib, nodeID := s.resolveInLibrary(ctx, q.Caller, q.Ref)
 
 	provider, ok := s.capabilityMetadataProvider(q.Ref.Provider)
 	if !ok {
@@ -67,7 +73,7 @@ func (s *Service) PreviewContent(ctx context.Context, q PreviewContentQuery) (Pr
 	if err != nil {
 		return PreviewContentResult{}, contracts.WrapError(contracts.Unavailable, "preview content", err)
 	}
-	return PreviewContentResult{Metadata: meta}, nil
+	return PreviewContentResult{Metadata: meta, InLibrary: inLib, NodeID: nodeID}, nil
 }
 
 // capabilityMetadataProvider resolves a metadata provider by module id,

@@ -222,7 +222,11 @@ func TestCatalogScreenRendersItemsAsDetailLinks(t *testing.T) {
 }
 
 func TestVirtualDetailShowsAddToLibrary(t *testing.T) {
-	fake := &fakeQueries{previewMeta: v1.ContentMetadata{Title: "Blade Runner 2049", Year: 2017, Overview: "A blade runner uncovers a secret."}}
+	fake := &fakeQueries{previewMeta: v1.ContentMetadata{
+		Title: "Blade Runner 2049", Year: 2017, Overview: "A blade runner uncovers a secret.",
+		Backdrop: "http://cdn/bd.jpg", Logo: "http://cdn/logo.png", Rating: 8.0, Runtime: "164 min",
+		Cast: []v1.Person{{Name: "Ryan Gosling"}, {Name: "Harrison Ford"}}, Genres: []string{"Sci-Fi"},
+	}}
 	node := render(t, &Service{content: fake}, "detail", map[string]any{"ref": map[string]any{
 		"provider": "stremio", "nativeId": "tt1254207", "nativeType": "movie",
 		"mediaType": "movie", "externalScheme": "imdb", "externalId": "tt1254207",
@@ -230,14 +234,19 @@ func TestVirtualDetailShowsAddToLibrary(t *testing.T) {
 	if fake.gotPreviewRef.NativeID != "tt1254207" {
 		t.Fatalf("preview saw ref %+v, want the card's ref", fake.gotPreviewRef)
 	}
-	header, ok := find(node, sdui.TypeDetailHeader)
-	if !ok || header.Props["title"] != "Blade Runner 2049" {
-		t.Fatalf("detail header = %+v, want the previewed title", header.Props)
+	// The rich detail is a HeroBanner carrying the title, logo and the primary
+	// action; the poster docks in its aside slot (ADR 0034).
+	hero, ok := find(node, sdui.TypeHeroBanner)
+	if !ok || hero.Props["title"] != "Blade Runner 2049" {
+		t.Fatalf("hero = %+v, want the previewed title", hero.Props)
 	}
-	// The sole library affordance is Add to library, in the header's actions slot.
-	actions := header.Slots["actions"]
+	if hero.Props["logo"] == nil || hero.Props["logo"] == "" {
+		t.Fatalf("hero has no logo prop; want the clearlogo bound")
+	}
+	// The sole library affordance is Add to library, in the hero's actions slot.
+	actions := hero.Slots["actions"]
 	if len(actions) != 1 || actions[0].Props["label"] != "Add to library" {
-		t.Fatalf("header actions = %+v, want a single Add to library button", actions)
+		t.Fatalf("hero actions = %+v, want a single Add to library button", actions)
 	}
 	act, _ := actions[0].Props["action"].(sdui.Action)
 	if act.Kind != sdui.KindInvoke || act.Mutation == nil || *act.Mutation != "importContent" {
@@ -247,22 +256,85 @@ func TestVirtualDetailShowsAddToLibrary(t *testing.T) {
 	if ref["nativeId"] != "tt1254207" {
 		t.Fatalf("add ref = %+v, want the previewed ref", ref)
 	}
+	// Top cast renders as PersonChips.
+	var chips []sdui.Node
+	findAll(node, sdui.TypePersonChip, &chips)
+	if len(chips) != 2 {
+		t.Fatalf("cast chips = %d, want 2", len(chips))
+	}
+	// The whole tree serializes to the wire form the client renders.
+	if _, err := json.Marshal(node); err != nil {
+		t.Fatalf("screen does not serialize: %v", err)
+	}
 }
 
-func TestVirtualDetailFallsThroughWhenAlreadyInLibrary(t *testing.T) {
+func TestInLibraryDetailShowsInLibraryMarker(t *testing.T) {
+	// An in-library ref renders the same rich detail from live metadata (ADR
+	// 0034), differing only in the primary action — an In library marker, not
+	// Add to library — and does not fall back to a structural node read.
 	fake := &fakeQueries{
 		previewInLibrary: true, previewNodeID: "n-9",
-		node: v1.Node{ID: "n-9", WorkID: "n-9", Kind: v1.NodeWork, MediaType: v1.MediaMovie, Title: "Already Here"},
+		previewMeta: v1.ContentMetadata{Title: "Already Here", Year: 2020},
 	}
 	node := render(t, &Service{content: fake}, "detail", map[string]any{"ref": map[string]any{
-		"provider": "stremio", "nativeId": "tt1", "nativeType": "movie",
+		"provider": "stremio", "nativeId": "tt1", "nativeType": "movie", "mediaType": "movie",
 	}})
-	if fake.gotNodeID != "n-9" {
-		t.Fatalf("expected a library-detail read of the in-library node, got %q", fake.gotNodeID)
+	if fake.gotNodeID != "" {
+		t.Fatalf("in-library detail should render from metadata, not read node %q", fake.gotNodeID)
 	}
-	header, _ := find(node, sdui.TypeDetailHeader)
-	if header.Props["title"] != "Already Here" {
-		t.Fatalf("detail = %+v, want the library node's detail, not a preview", header.Props)
+	hero, ok := find(node, sdui.TypeHeroBanner)
+	if !ok || hero.Props["title"] != "Already Here" {
+		t.Fatalf("hero = %+v, want the metadata title", hero.Props)
+	}
+	actions := hero.Slots["actions"]
+	if len(actions) != 1 || actions[0].Type != sdui.TypeBadge || actions[0].Props["label"] != "In library" {
+		t.Fatalf("hero actions = %+v, want a single In library badge", actions)
+	}
+}
+
+func TestSeriesDetailRendersEpisodesWithSeasonSelector(t *testing.T) {
+	fake := &fakeQueries{previewMeta: v1.ContentMetadata{
+		Title: "Avatar: The Last Airbender",
+		Episodes: []v1.EpisodePreview{
+			{Season: 1, Episode: 1, Title: "The Boy in the Iceberg", Overview: "Katara and Sokka find Aang."},
+			{Season: 1, Episode: 2, Title: "The Avatar Returns", Overview: "Zuko attacks."},
+			{Season: 2, Episode: 1, Title: "The Avatar State", Overview: "Aang trains."},
+		},
+	}}
+	refParam := map[string]any{"provider": "stremio", "nativeId": "tt0417299", "nativeType": "series", "mediaType": "tv-series"}
+
+	// Default (no season param) shows season 1's two episodes.
+	node := render(t, &Service{content: fake}, "detail", map[string]any{"ref": refParam})
+	selector, ok := find(node, sdui.TypeSeasonSelector)
+	if !ok {
+		t.Fatal("series detail has no SeasonSelector")
+	}
+	seasons, _ := selector.Props["seasons"].([]map[string]any)
+	if len(seasons) != 2 {
+		t.Fatalf("season entries = %d, want 2", len(seasons))
+	}
+	if selector.Props["selected"] != "1" {
+		t.Fatalf("default selected season = %v, want \"1\"", selector.Props["selected"])
+	}
+	var rows []sdui.Node
+	findAll(node, sdui.TypeEpisodeRow, &rows)
+	if len(rows) != 2 {
+		t.Fatalf("season 1 episode rows = %d, want 2", len(rows))
+	}
+	if rows[0].Props["title"] != "The Boy in the Iceberg" || rows[0].Props["overview"] == nil {
+		t.Fatalf("episode row = %+v, want the title and synopsis", rows[0].Props)
+	}
+
+	// The season param switches to season 2's single episode.
+	node2 := render(t, &Service{content: fake}, "detail", map[string]any{"ref": refParam, "season": "2"})
+	var rows2 []sdui.Node
+	findAll(node2, sdui.TypeEpisodeRow, &rows2)
+	if len(rows2) != 1 || rows2[0].Props["title"] != "The Avatar State" {
+		t.Fatalf("season 2 rows = %+v, want the single S2 episode", rows2)
+	}
+	sel2, _ := find(node2, sdui.TypeSeasonSelector)
+	if sel2.Props["selected"] != "2" {
+		t.Fatalf("selected season = %v, want \"2\"", sel2.Props["selected"])
 	}
 }
 
