@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-FileCopyrightText: 2026 the Mosaic authors
+# Linking exception: see LICENSE-EXCEPTION.
+
+# buf configuration for the session transport contract (ADR 0041). The proto
+# lives under proto/; generated Go lands under internal/gen/ (see buf.gen.yaml).
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # ADR 0041 names the contract deliberately: a shared empty Ack reply for
+    # every intent, an Op enum whose zero value REPLACE is the intended
+    # whole-region default, and a ServerMessage streamed by Subscribe. These
+    # honour the ADR's illustrative shape over buf's naming conventions.
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - ENUM_VALUE_PREFIX
+    - ENUM_ZERO_VALUE_SUFFIX
+breaking:
+  use:
+    - FILE

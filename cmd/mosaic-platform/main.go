@@ -18,10 +18,13 @@ import (
 	"time"
 
 	stremio "github.com/mosaic-media/module-stremio-addons"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/mosaic-media/platform/internal/adapters/crypto"
 	"github.com/mosaic-media/platform/internal/composition/bootstrap"
 	"github.com/mosaic-media/platform/internal/composition/builtin"
+	"github.com/mosaic-media/platform/internal/gen/mosaic/session/v1/sessionv1connect"
 	"github.com/mosaic-media/platform/internal/modules/postgres"
 	"github.com/mosaic-media/platform/internal/platform/app"
 	"github.com/mosaic-media/platform/internal/platform/config"
@@ -33,7 +36,7 @@ import (
 	"github.com/mosaic-media/platform/internal/transport/artwork"
 	graphqltransport "github.com/mosaic-media/platform/internal/transport/graphql"
 	"github.com/mosaic-media/platform/internal/transport/health"
-	"github.com/mosaic-media/platform/internal/transport/live"
+	"github.com/mosaic-media/platform/internal/transport/session"
 )
 
 // postgresDSNEnv names the environment variable carrying the PostgreSQL
@@ -313,16 +316,28 @@ func run() error {
 	if apiAddr == "" {
 		apiAddr = defaultAPIAddr
 	}
-	liveServer := live.NewServer(svc, schema, artworkSigner.Rewrite)
+	// The first-party client session is the Connect two-lane RPC surface
+	// (ADR 0041): unary intents (Navigate/Invoke/SubmitInput/Attach) and one
+	// server-streaming Subscribe per session for push. It supersedes the ADR 0032
+	// WebSocket. GraphQL is retained only as the external/tooling surface, not on
+	// the hot client path.
+	sessionHandler := session.NewHandler(svc, artworkSigner.Rewrite)
+	sessionHandler.Manager().StartReaper(serveCtx)
+	sessionPath, sessionConnect := sessionv1connect.NewSessionServiceHandler(sessionHandler)
+
 	apiMux := http.NewServeMux()
 	apiMux.Handle("/graphql", graphqltransport.Handler(schema))
 	apiMux.Handle("/artwork", artwork.Handler(artworkSigner, artwork.GuardedClient()))
-	apiMux.Handle("/live", liveServer.Handler())
-	apiServer := &http.Server{Addr: apiAddr, Handler: apiMux}
-	// On graceful shutdown, close every live socket with a "going away" status so
-	// clients reconnect rather than error (ADR 0032). http.Server.Shutdown does
-	// not drain hijacked WebSocket connections, so this hook does it explicitly.
-	apiServer.RegisterOnShutdown(liveServer.Shutdown)
+	apiMux.Handle(sessionPath, sessionConnect)
+	// Serve the API over h2c (cleartext HTTP/2) so the two session lanes —
+	// concurrent unary intents and the long-lived Subscribe stream — multiplex
+	// onto one connection (ADR 0041); Connect still degrades to HTTP/1.1 for the
+	// GraphQL and artwork handlers.
+	apiServer := &http.Server{Addr: apiAddr, Handler: h2c.NewHandler(apiMux, &http2.Server{})}
+	// On graceful shutdown, close every session so its Subscribe stream ends and
+	// the client reconnects rather than erroring (ADR 0041 stream resume, as
+	// ADR 0032's "going away" close did for the socket).
+	apiServer.RegisterOnShutdown(sessionHandler.Manager().Shutdown)
 
 	// Both servers feed one error channel; whichever fails first ends the
 	// serve phase and both are shut down together below.
@@ -340,6 +355,7 @@ func run() error {
 	lifecycle.MarkRunning()
 	fmt.Printf("mosaic-platform: serving Supervisor handoff surface on %s\n", healthAddr)
 	fmt.Printf("mosaic-platform: serving GraphQL API on %s/graphql\n", apiAddr)
+	fmt.Printf("mosaic-platform: serving session transport on %s%s* (Connect two-lane, ADR 0041)\n", apiAddr, sessionPath)
 	fmt.Println("mosaic-platform: ready")
 
 	var serveErr error
