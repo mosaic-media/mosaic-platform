@@ -7,6 +7,7 @@ package screens
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 
 	sdui "github.com/mosaic-media/mosaic-sdui/sdui"
@@ -17,17 +18,22 @@ import (
 )
 
 // fakeQueries stands in for the application query surface, so the screen
-// builders are tested without a full Service.
+// builders are tested without a full Service. The real query surface
+// (*app.Service) serves concurrent requests, and homeScreen fans its catalog
+// reads out across goroutines, so the fake guards its captured-arg fields with a
+// mutex — as any concurrency-safe stand-in must.
 type fakeQueries struct {
-	results             []v1.SearchResult
-	catalogs            []app.ModuleCatalog
-	items               []v1.CatalogItem
-	node                v1.Node
-	children            []v1.Node
-	previewMeta         v1.ContentMetadata
-	previewInLibrary    bool
-	previewNodeID       v1.NodeID
-	settingsUI          []byte
+	results          []v1.SearchResult
+	catalogs         []app.ModuleCatalog
+	items            []v1.CatalogItem
+	node             v1.Node
+	children         []v1.Node
+	previewMeta      v1.ContentMetadata
+	previewInLibrary bool
+	previewNodeID    v1.NodeID
+	settingsUI       []byte
+
+	mu                  sync.Mutex
 	gotText             string
 	gotCatalogID        string
 	gotNodeID           v1.NodeID
@@ -36,7 +42,9 @@ type fakeQueries struct {
 }
 
 func (f *fakeQueries) SearchAvailableContent(_ context.Context, q app.SearchAvailableContentQuery) (app.SearchAvailableContentResult, error) {
+	f.mu.Lock()
 	f.gotText = q.Text
+	f.mu.Unlock()
 	return app.SearchAvailableContentResult{Results: f.results}, nil
 }
 
@@ -45,22 +53,30 @@ func (f *fakeQueries) ListModuleCatalogs(_ context.Context, _ app.ListModuleCata
 }
 
 func (f *fakeQueries) ListCatalogItems(_ context.Context, q app.ListCatalogItemsQuery) (app.ListCatalogItemsResult, error) {
+	f.mu.Lock()
 	f.gotCatalogID = q.CatalogID
+	f.mu.Unlock()
 	return app.ListCatalogItemsResult{Items: f.items}, nil
 }
 
 func (f *fakeQueries) GetContentNode(_ context.Context, q v1.GetContentNodeQuery) (v1.GetContentNodeResult, error) {
+	f.mu.Lock()
 	f.gotNodeID = q.NodeID
+	f.mu.Unlock()
 	return v1.GetContentNodeResult{Node: f.node, Children: f.children}, nil
 }
 
 func (f *fakeQueries) PreviewContent(_ context.Context, q app.PreviewContentQuery) (app.PreviewContentResult, error) {
+	f.mu.Lock()
 	f.gotPreviewRef = q.Ref
+	f.mu.Unlock()
 	return app.PreviewContentResult{Metadata: f.previewMeta, InLibrary: f.previewInLibrary, NodeID: f.previewNodeID}, nil
 }
 
 func (f *fakeQueries) ModuleSettingsUI(_ context.Context, q app.ModuleSettingsUIQuery) (app.ModuleSettingsUIResult, error) {
+	f.mu.Lock()
 	f.gotSettingsModuleID = q.ModuleID
+	f.mu.Unlock()
 	return app.ModuleSettingsUIResult{ModuleID: q.ModuleID, UI: f.settingsUI}, nil
 }
 

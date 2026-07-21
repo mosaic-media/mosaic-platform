@@ -55,24 +55,30 @@ func (s *Service) SearchAvailableContent(ctx context.Context, q SearchAvailableC
 		return SearchAvailableContentResult{}, nil
 	}
 
-	var results []v1.SearchResult
-	for _, e := range s.capabilities.SearchProviders() {
-		settings, err := s.readModuleSettings(ctx, e.ModuleID)
-		if err != nil {
-			return SearchAvailableContentResult{}, err
-		}
-		resp, err := e.Provider.Search(ctx, v1.SearchRequest{
-			Caller: q.Caller, Settings: settings, Text: q.Text, MediaType: q.MediaType, Limit: q.Limit,
+	// Fan the query out to every provider concurrently; each is an independent
+	// remote round-trip. fanOut preserves provider order and the two error paths:
+	// a settings read that fails aborts the query, a provider that is down is
+	// skipped (nil, nil) so its plane empties without blanking the others.
+	results, err := fanOut(ctx, s.capabilities.SearchProviders(),
+		func(ctx context.Context, e SearchProviderEntry) ([]v1.SearchResult, error) {
+			settings, err := s.readModuleSettings(ctx, e.ModuleID)
+			if err != nil {
+				return nil, err
+			}
+			resp, err := e.Provider.Search(ctx, v1.SearchRequest{
+				Caller: q.Caller, Settings: settings, Text: q.Text, MediaType: q.MediaType, Limit: q.Limit,
+			})
+			if err != nil {
+				return nil, nil
+			}
+			out := resp.Results
+			for i := range out {
+				out[i].InLibrary, out[i].NodeID = s.resolveInLibrary(ctx, q.Caller, out[i].Ref)
+			}
+			return out, nil
 		})
-		if err != nil {
-			// A provider being unreachable or misconfigured empties its plane;
-			// the rest of the union still stands.
-			continue
-		}
-		for _, r := range resp.Results {
-			r.InLibrary, r.NodeID = s.resolveInLibrary(ctx, q.Caller, r.Ref)
-			results = append(results, r)
-		}
+	if err != nil {
+		return SearchAvailableContentResult{}, err
 	}
 	return SearchAvailableContentResult{Results: results}, nil
 }

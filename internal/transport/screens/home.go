@@ -7,6 +7,7 @@ package screens
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	sdui "github.com/mosaic-media/mosaic-sdui/sdui"
 
@@ -33,34 +34,57 @@ func (s *Service) homeScreen(ctx context.Context, caller v1.Caller) (sdui.Node, 
 		return emptyScreen("Home", emptyIconCollections, "Nothing here yet — add an addon in Settings to browse content"), nil
 	}
 
-	body := make([]sdui.Node, 0, homeMaxRows+1)
+	// Render at most homeMaxRows rows. Each row's items are a remote round-trip,
+	// so fetch them concurrently rather than serially — the landing page pays one
+	// round-trip instead of a sum. We fetch only the catalogs we render (the first
+	// homeMaxRows), bounding remote load to the visible rows; a catalog beyond that
+	// is not fetched, and one that errors simply drops its row.
+	catalogs := cats.Catalogs
+	if len(catalogs) > homeMaxRows {
+		catalogs = catalogs[:homeMaxRows]
+	}
+	itemsByCatalog := make([]app.ListCatalogItemsResult, len(catalogs))
+	var wg sync.WaitGroup
+	for i, c := range catalogs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// A downed catalog leaves its slot empty, which the assembly below skips
+			// — the same effect as the serial code's continue-on-error.
+			items, err := s.content.ListCatalogItems(ctx, app.ListCatalogItemsQuery{
+				Caller: caller, ModuleID: c.ModuleID, CatalogID: c.Catalog.ID, NativeType: c.Catalog.NativeType,
+			})
+			if err == nil {
+				itemsByCatalog[i] = items
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Assemble in catalog order: the hero comes from the first non-empty catalog's
+	// first item (one further round-trip to enrich it), then a row per non-empty
+	// catalog.
+	body := make([]sdui.Node, 0, len(catalogs)+1)
 	heroAdded := false
-	rows := 0
-	for _, c := range cats.Catalogs {
-		if rows >= homeMaxRows {
-			break
-		}
-		items, err := s.content.ListCatalogItems(ctx, app.ListCatalogItemsQuery{
-			Caller: caller, ModuleID: c.ModuleID, CatalogID: c.Catalog.ID, NativeType: c.Catalog.NativeType,
-		})
-		if err != nil || len(items.Items) == 0 {
+	for i, c := range catalogs {
+		items := itemsByCatalog[i].Items
+		if len(items) == 0 {
 			continue
 		}
 		if !heroAdded {
-			if hero, ok := s.heroFromItem(ctx, caller, items.Items[0]); ok {
+			if hero, ok := s.heroFromItem(ctx, caller, items[0]); ok {
 				body = append(body, hero)
 				heroAdded = true
 			}
 		}
 		cards := make([]sdui.Node, 0, homeMaxRowItems)
-		for i, it := range items.Items {
-			if i >= homeMaxRowItems {
+		for j, it := range items {
+			if j >= homeMaxRowItems {
 				break
 			}
 			cards = append(cards, s.contentCard(it.Ref, it.Title, it.Year, it.Poster, it.InLibrary))
 		}
 		body = append(body, carouselSection(c.Catalog.Name, cards...))
-		rows++
 	}
 	if len(body) == 0 {
 		return emptyScreen("Home", emptyIconCollections, "Nothing to show yet — try adding an addon in Settings"), nil

@@ -49,19 +49,26 @@ func (s *Service) ListModuleCatalogs(ctx context.Context, q ListModuleCatalogsQu
 		return ListModuleCatalogsResult{}, nil
 	}
 
-	var catalogs []ModuleCatalog
-	for _, e := range s.capabilities.CatalogProviders() {
-		settings, err := s.readModuleSettings(ctx, e.ModuleID)
-		if err != nil {
-			return ListModuleCatalogsResult{}, err
-		}
-		resp, err := e.Provider.Catalogs(ctx, v1.CatalogsRequest{Caller: q.Caller, Settings: settings})
-		if err != nil {
-			continue
-		}
-		for _, cat := range resp.Catalogs {
-			catalogs = append(catalogs, ModuleCatalog{ModuleID: e.ModuleID, Catalog: cat})
-		}
+	// Fan out to every catalog provider concurrently, same shape as the search
+	// fan-out: settings-read failure aborts, a downed provider is skipped.
+	catalogs, err := fanOut(ctx, s.capabilities.CatalogProviders(),
+		func(ctx context.Context, e CatalogProviderEntry) ([]ModuleCatalog, error) {
+			settings, err := s.readModuleSettings(ctx, e.ModuleID)
+			if err != nil {
+				return nil, err
+			}
+			resp, err := e.Provider.Catalogs(ctx, v1.CatalogsRequest{Caller: q.Caller, Settings: settings})
+			if err != nil {
+				return nil, nil
+			}
+			out := make([]ModuleCatalog, 0, len(resp.Catalogs))
+			for _, cat := range resp.Catalogs {
+				out = append(out, ModuleCatalog{ModuleID: e.ModuleID, Catalog: cat})
+			}
+			return out, nil
+		})
+	if err != nil {
+		return ListModuleCatalogsResult{}, err
 	}
 	return ListModuleCatalogsResult{Catalogs: catalogs}, nil
 }
