@@ -10,7 +10,7 @@
 - **`architecture`** — the docs and ADRs. Push doc updates here whenever code and docs diverge.
 - **`sdk`** — the **published contract surface**, extracted into its own module (`github.com/mosaic-media/sdk`). This is what a Module compiles against. See "The published SDK is a separate module" below — this catches out anyone who assumes the content types are still under `internal/`.
 - **`module-stremio-addons`** — the **first optional module**, in its own repo exactly as a third party's would be: a Go client of the Stremio addon protocol importing only the SDK, MIT-licensed, published at `v0.1.0`. The Platform requires it as a tagged dependency (ADR 0019–0021). Commit and push it separately.
-- **`mosaic-shell`** — the **Server-Driven-UI web client** (React/TypeScript/Vite), a *client of the Platform over GraphQL*, not a Module and not in the binary. A thin app: chrome/routing/mock-screens/gallery that consumes the runtime below. Its component set is primitives + `ComponentDefinition` data on a token-driven skin, technology-agnostic so a future Flutter client renders the same payloads. AGPL-3.0-only (ADR 0022–0024). The Platform does not yet *emit* SDUI screens, so the Shell runs on mock payloads. Commit and push it separately.
+- **`mosaic-shell`** — the **Server-Driven-UI web client** (React/TypeScript/Vite, now a package in the `web` workspace repo), not a Module and not in the binary. A thin app: chrome/routing + the SDUI runtime below. Its component set is primitives + `ComponentDefinition` data on a token-driven skin, technology-agnostic so a future Flutter client renders the same payloads. AGPL-3.0-only (ADR 0022–0024). It runs on a **live session over the two-lane Connect `SessionService` (ADR 0041)** — it Subscribes to the Platform and renders the pushed shell + region updates; dev sign-in still mints a session over GraphQL. (Static mock screens remain in-tree as dead code.) Commit and push it separately.
 - **`mosaic-sdui-react`** — **`@mosaic-media/sdui-react`**, the **React runtime** for the SDUI (primitives, registry, renderer, definition expander, `ShellProvider`, token skin). Extracted from the Shell into its own repo so the Shell and the storybook consume it as **peers**. AGPL-3.0-only (first-party client code, unlike the Apache contract). Builds to `dist` via tsc; React is a peer dep. Published: npm `@mosaic-media/sdui-react@0.1.0`.
 - **`mosaic-storybook`** — a **live, bespoke storybook** of the SDUI components (each shown as a live render beside its `UINode` JSON), on GitHub Pages at https://mosaic-media.github.io/mosaic-storybook/. React/TS/Vite, AGPL-3.0-only; a peer consumer of `@mosaic-media/sdui-react` + `@mosaic-media/sdui` from npm. Not part of the runtime path — pure showcase/docs.
 - **`sdui`** — the **published SDUI contract** the Platform, Modules and Shell share: JSON-Schema schema (`UINode`/`Action`/`ComponentDefinition`) is the single source of truth; the Go/TS bindings are **generated** from it. Ships a **Go producer binding** (`github.com/mosaic-media/sdui/sdui`, published at `v0.1.0` — `go get` it, the emit-side builds screens against it), an npm package (`@mosaic-media/sdui`), the standard definition library as data, and DTCG tokens. Apache-2.0, like the SDK (ADR 0025). When you build the Platform's SDUI emit-side, `go get` this and build against it (`replace => ../sdui` for local cross-repo work). Commit and push it separately.
@@ -150,8 +150,10 @@ this is the map, oldest first.
 **Running it:** set `MOSAIC_POSTGRES_DSN`, and (optionally)
 `MOSAIC_BOOTSTRAP_ADMIN_USERNAME` + `MOSAIC_BOOTSTRAP_ADMIN_PASSWORD`, then
 `go run ./cmd/mosaic-platform`. It migrates, seeds the admin, registers the
-built-in modules, serves GraphQL on `:8081/graphql` and the Supervisor handoff
-on `:8080`. The Stremio module is always registered; a user adds addons at
+built-in modules, serves GraphQL on `:8081/graphql`, the SDUI session transport
+(the two-lane Connect `SessionService`, ADR 0041) on `:8081` over h2c, artwork on
+`:8081/artwork`, and the Supervisor handoff on `:8080`. The Stremio module is
+always registered; a user adds addons at
 runtime via the `configureModule` mutation (ADR 0021) — the
 `MOSAIC_STREMIO_ADDONS` env var is retired.
 
@@ -190,7 +192,11 @@ runtime via the `configureModule` mutation (ADR 0021) — the
   accelerator over the poll, not a replacement.
 - **Session refresh and device pairing.** Resolvers return `Unavailable`.
   Same for jobs and health-history resolvers.
-- **Exports (NFO/.mos), Shell, SDUI, streaming.**
+- **Exports (NFO/.mos), streaming.** (The SDUI emit-side and the ADR 0041
+  session transport are now built — `internal/transport/screens` renders screens
+  and `internal/transport/session` serves the two-lane `SessionService`; the web
+  Shell renders them live. Play-time stream resolution/transcoding remains the
+  deferred "streaming" concern above.)
 
 ## What is next
 
