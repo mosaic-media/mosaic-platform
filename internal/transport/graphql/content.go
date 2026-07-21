@@ -12,6 +12,7 @@ import (
 	v1 "github.com/mosaic-media/mosaic-sdk/contracts/platform/v1"
 
 	"github.com/mosaic-media/mosaic-platform/internal/platform/app"
+	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 )
 
 // The content projection surface. Every resolver here calls exactly one
@@ -716,7 +717,10 @@ func configureModuleField(svc *app.Service) *graphql.Field {
 			"input":           &graphql.ArgumentConfig{Type: jsonScalar},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			moduleID, settings := configureArgs(p)
+			moduleID, settings, err := configureArgs(p)
+			if err != nil {
+				return nil, err
+			}
 			result, err := svc.ConfigureModule(p.Context, app.ConfigureModuleCommand{
 				Caller:   caller(p),
 				ModuleID: moduleID,
@@ -733,16 +737,22 @@ func configureModuleField(svc *app.Service) *graphql.Field {
 // configureArgs reads the module id and settings document from either the
 // runtime's input envelope (an Invoke action — settings arrives as a JSON object)
 // or the typed arguments (a direct caller — settings arrives as a JSON string).
-func configureArgs(p graphql.ResolveParams) (string, []byte) {
+func configureArgs(p graphql.ResolveParams) (string, []byte, error) {
 	if input, ok := p.Args["input"].(map[string]interface{}); ok {
 		moduleID, _ := input["moduleId"].(string)
 		var settings []byte
 		if s, ok := input["settings"]; ok && s != nil {
-			settings, _ = json.Marshal(s)
+			b, err := json.Marshal(s)
+			if err != nil {
+				// s is the decoded settings from the input envelope; a value that
+				// fails to re-marshal is a malformed request, not an empty one.
+				return "", nil, contracts.NewError(contracts.InvalidArgument, "configure module: settings is not valid JSON")
+			}
+			settings = b
 		}
-		return moduleID, settings
+		return moduleID, settings, nil
 	}
-	return argString(p, "moduleId"), optionalBytes(argString(p, "settings"))
+	return argString(p, "moduleId"), optionalBytes(argString(p, "settings")), nil
 }
 
 // moduleSettingsUIField resolves a module's own contributed settings screen as a
