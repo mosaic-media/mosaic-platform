@@ -129,6 +129,6 @@ func (s *Service) Render(ctx context.Context, name string, caller v1.Caller, par
 	case screenSettings:
 		return s.settingsScreen(ctx, caller, params)
 	default:
-		return sdui.Node{}, contracts.NewError(contracts.NotFound, "no screen named "+name)
+		return nil, contracts.NewError(contracts.NotFound, "no screen named "+name)
 	}
 }

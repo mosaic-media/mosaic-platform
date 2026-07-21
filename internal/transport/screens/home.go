@@ -28,7 +28,7 @@ const (
 func (s *Service) homeScreen(ctx context.Context, caller v1.Caller) (sdui.Node, error) {
 	cats, err := s.content.ListModuleCatalogs(ctx, app.ListModuleCatalogsQuery{Caller: caller})
 	if err != nil {
-		return sdui.Node{}, err
+		return nil, err
 	}
 	if len(cats.Catalogs) == 0 {
 		return emptyScreen("Home", emptyIconCollections, "Nothing here yet — add an addon in Settings to browse content"), nil
@@ -98,7 +98,7 @@ func (s *Service) homeScreen(ctx context.Context, caller v1.Caller) (sdui.Node, 
 func (s *Service) heroFromItem(ctx context.Context, caller v1.Caller, it v1.CatalogItem) (sdui.Node, bool) {
 	prev, err := s.content.PreviewContent(ctx, app.PreviewContentQuery{Caller: caller, Ref: it.Ref})
 	if err != nil {
-		return sdui.Node{}, false
+		return nil, false
 	}
 	m := prev.Metadata
 	title := m.Title

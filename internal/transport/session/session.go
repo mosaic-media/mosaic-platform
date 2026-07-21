@@ -13,11 +13,12 @@ import (
 
 	"connectrpc.com/connect"
 
-	sessionv1 "github.com/mosaic-media/platform/internal/gen/mosaic/session/v1"
-	"github.com/mosaic-media/platform/internal/gen/mosaic/session/v1/sessionv1connect"
 	"github.com/mosaic-media/platform/internal/platform/app"
 	"github.com/mosaic-media/platform/internal/platform/contracts"
 	"github.com/mosaic-media/platform/internal/transport/screens"
+	sessionv1 "github.com/mosaic-media/sdui/gen/mosaic/session/v1"
+	"github.com/mosaic-media/sdui/gen/mosaic/session/v1/sessionv1connect"
+	sdui "github.com/mosaic-media/sdui/sdui"
 )
 
 // inputDebounce is the server-side coalescing window for search-as-you-type
@@ -153,10 +154,10 @@ func (h *Handler) Subscribe(ctx context.Context, req *connect.Request[sessionv1.
 func (h *Handler) pushShell(ctx context.Context, s *liveSession) {
 	node, err := h.screens.Render(ctx, "shell", s.caller, nil)
 	if err != nil {
-		s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, errorNodeJSON(err.Error())))
+		s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, errorNode(err.Error())))
 		return
 	}
-	s.enqueue(shellMsg(mustJSON(node)))
+	s.enqueue(shellMsg(node))
 }
 
 // pushContent renders the current route into the content region.
@@ -170,10 +171,10 @@ func (h *Handler) pushContent(ctx context.Context, s *liveSession) {
 func (h *Handler) pushRender(ctx context.Context, s *liveSession, screen string, params map[string]any) {
 	node, err := h.screens.Render(ctx, screen, s.caller, params)
 	if err != nil {
-		s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, errorNodeJSON(err.Error())))
+		s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, errorNode(err.Error())))
 		return
 	}
-	s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, mustJSON(node)))
+	s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, node))
 }
 
 // onInput records the latest search text and (re)arms the debounce timer, so a
@@ -203,14 +204,14 @@ func (h *Handler) onInput(s *liveSession, text string) {
 	})
 }
 
-// --- ServerMessage constructors (encoding option (a): UINode as SDUI JSON
-// bytes inside the protobuf envelope). ---
+// --- ServerMessage constructors (encoding option (b), ADR 0044: the typed
+// mosaic.sdui.v1.UINode rides the envelope directly, no JSON step). ---
 
-func shellMsg(node []byte) *sessionv1.ServerMessage {
+func shellMsg(node sdui.Node) *sessionv1.ServerMessage {
 	return &sessionv1.ServerMessage{Body: &sessionv1.ServerMessage_Shell{Shell: &sessionv1.ShellUpdate{UiNode: node}}}
 }
 
-func regionMsg(region string, op sessionv1.RegionUpdate_Op, node []byte) *sessionv1.ServerMessage {
+func regionMsg(region string, op sessionv1.RegionUpdate_Op, node sdui.Node) *sessionv1.ServerMessage {
 	return &sessionv1.ServerMessage{Body: &sessionv1.ServerMessage_Region{Region: &sessionv1.RegionUpdate{Region: region, Op: op, UiNode: node}}}
 }
 
@@ -232,17 +233,6 @@ func invokeToast(action string) string {
 	}
 }
 
-// mustJSON marshals a UINode subtree to its SDUI JSON encoding. A screen node is
-// always marshalable (it is plain maps/slices/strings); a marshal failure would
-// be a programming error, so the empty object it falls back to is a safe floor.
-func mustJSON(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return []byte("{}")
-	}
-	return b
-}
-
 // decodeParams reads a screen's JSON param object into the map the screen
 // builders take. Absent or empty params decode to nil, which the builders read
 // as "no params".
@@ -257,13 +247,11 @@ func decodeParams(b []byte) map[string]any {
 	return m
 }
 
-// errorNodeJSON is the ErrorState UINode a failed render puts in the content
-// region (ADR 0029's error surface).
-func errorNodeJSON(message string) []byte {
-	return mustJSON(map[string]any{
-		"type":  "ErrorState",
-		"props": map[string]any{"category": "Unavailable", "message": message},
-	})
+// errorNode is the ErrorState UINode a failed render puts in the content region
+// (ADR 0029's error surface).
+func errorNode(message string) sdui.Node {
+	return sdui.Component("ErrorState",
+		sdui.Prop("category", "Unavailable"), sdui.Prop("message", message))
 }
 
 // errorMessage extracts a user-facing message from a Platform error, falling

@@ -28,7 +28,7 @@ func (s *Service) searchScreen(ctx context.Context, caller v1.Caller, params map
 
 	res, err := s.content.SearchAvailableContent(ctx, app.SearchAvailableContentQuery{Caller: caller, Text: text})
 	if err != nil {
-		return sdui.Node{}, err
+		return nil, err
 	}
 	if len(res.Results) == 0 {
 		return emptyScreen("Search", emptyIconSearch, "No results for \""+text+"\""), nil

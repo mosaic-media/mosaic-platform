@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	sessionv1 "github.com/mosaic-media/platform/internal/gen/mosaic/session/v1"
+	sessionv1 "github.com/mosaic-media/sdui/gen/mosaic/session/v1"
+	sdui "github.com/mosaic-media/sdui/sdui"
 )
 
 // enqueueToast is a small helper: push a toast body and return its assigned seq.
@@ -145,7 +146,7 @@ func TestServeFreshConnectRebuilds(t *testing.T) {
 	defer cancel()
 	c := newCollector()
 	onConnect := func() {
-		s.enqueue(shellMsg([]byte("{}")))                                        // seq 2
+		s.enqueue(shellMsg(sdui.Component("")))                                  // seq 2
 		s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, nil)) // seq 3
 	}
 	done := make(chan struct{})

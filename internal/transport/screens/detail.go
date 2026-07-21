@@ -28,7 +28,7 @@ func (s *Service) detailScreen(ctx context.Context, caller v1.Caller, params map
 	}
 	nodeID := stringParam(params, paramNodeID)
 	if nodeID == "" {
-		return sdui.Node{}, contracts.NewError(contracts.InvalidArgument, "detail screen needs a nodeId or ref param")
+		return nil, contracts.NewError(contracts.InvalidArgument, "detail screen needs a nodeId or ref param")
 	}
 	return s.libraryDetail(ctx, caller, nodeID)
 }
@@ -42,7 +42,7 @@ func (s *Service) detailScreen(ctx context.Context, caller v1.Caller, params map
 func (s *Service) richDetail(ctx context.Context, caller v1.Caller, ref v1.ContentRef, params map[string]any) (sdui.Node, error) {
 	res, err := s.content.PreviewContent(ctx, app.PreviewContentQuery{Caller: caller, Ref: ref})
 	if err != nil {
-		return sdui.Node{}, err
+		return nil, err
 	}
 	m := res.Metadata
 	title := m.Title
@@ -193,7 +193,7 @@ func (s *Service) libraryDetail(ctx context.Context, caller v1.Caller, nodeID st
 		Caller: caller, NodeID: v1.NodeID(nodeID), WithChildren: true,
 	})
 	if err != nil {
-		return sdui.Node{}, err
+		return nil, err
 	}
 	n := res.Node
 

@@ -24,7 +24,7 @@ import (
 	"github.com/mosaic-media/platform/internal/adapters/crypto"
 	"github.com/mosaic-media/platform/internal/composition/bootstrap"
 	"github.com/mosaic-media/platform/internal/composition/builtin"
-	"github.com/mosaic-media/platform/internal/gen/mosaic/session/v1/sessionv1connect"
+	"github.com/mosaic-media/sdui/gen/mosaic/session/v1/sessionv1connect"
 	"github.com/mosaic-media/platform/internal/modules/postgres"
 	"github.com/mosaic-media/platform/internal/platform/app"
 	"github.com/mosaic-media/platform/internal/platform/config"

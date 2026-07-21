@@ -21,7 +21,7 @@ import (
 func (s *Service) collectionsScreen(ctx context.Context, caller v1.Caller) (sdui.Node, error) {
 	res, err := s.content.ListModuleCatalogs(ctx, app.ListModuleCatalogsQuery{Caller: caller})
 	if err != nil {
-		return sdui.Node{}, err
+		return nil, err
 	}
 	if len(res.Catalogs) == 0 {
 		return emptyScreen("Collections", emptyIconCollections, "No collections yet — configure a module addon first"), nil
@@ -42,13 +42,13 @@ func (s *Service) catalogScreen(ctx context.Context, caller v1.Caller, params ma
 	moduleID := stringParam(params, paramModuleID)
 	catalogID := stringParam(params, paramCatalogID)
 	if moduleID == "" || catalogID == "" {
-		return sdui.Node{}, contracts.NewError(contracts.InvalidArgument, "catalog screen needs moduleId and catalogId params")
+		return nil, contracts.NewError(contracts.InvalidArgument, "catalog screen needs moduleId and catalogId params")
 	}
 	res, err := s.content.ListCatalogItems(ctx, app.ListCatalogItemsQuery{
 		Caller: caller, ModuleID: moduleID, CatalogID: catalogID, NativeType: stringParam(params, paramNativeType),
 	})
 	if err != nil {
-		return sdui.Node{}, err
+		return nil, err
 	}
 	if len(res.Items) == 0 {
 		return emptyScreen("Collection", emptyIconCollections, "This collection is empty"), nil

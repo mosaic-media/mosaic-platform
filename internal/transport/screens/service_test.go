@@ -6,8 +6,9 @@ package screens
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
+
+	"google.golang.org/protobuf/encoding/protojson"
 	"testing"
 
 	sdui "github.com/mosaic-media/sdui/sdui"
@@ -89,26 +90,63 @@ func render(t *testing.T, svc *Service, name string, params map[string]any) sdui
 	return node
 }
 
-// find walks a node tree for the first node of the given type.
+// find walks a node tree (children and slots) for the first node of the type.
 func find(n sdui.Node, typ string) (sdui.Node, bool) {
-	if n.Type == typ {
+	if n == nil {
+		return nil, false
+	}
+	if n.GetType() == typ {
 		return n, true
 	}
-	for _, c := range n.Children {
+	for _, c := range n.GetChildren() {
 		if got, ok := find(c, typ); ok {
 			return got, true
 		}
 	}
-	return sdui.Node{}, false
+	for _, list := range n.GetSlots() {
+		for _, c := range list.GetNodes() {
+			if got, ok := find(c, typ); ok {
+				return got, true
+			}
+		}
+	}
+	return nil, false
 }
 
 func findAll(n sdui.Node, typ string, acc *[]sdui.Node) {
-	if n.Type == typ {
+	if n == nil {
+		return
+	}
+	if n.GetType() == typ {
 		*acc = append(*acc, n)
 	}
-	for _, c := range n.Children {
+	for _, c := range n.GetChildren() {
 		findAll(c, typ, acc)
 	}
+	for _, list := range n.GetSlots() {
+		for _, c := range list.GetNodes() {
+			findAll(c, typ, acc)
+		}
+	}
+}
+
+// prop reads a node's prop from the protobuf Struct (ADR 0044 — props is an open
+// Struct, decoded to a Go map for assertions).
+func prop(n sdui.Node, key string) any { return n.GetProps().AsMap()[key] }
+
+// actionOf reads the action riding in a node's open props bag (JSON-in-Struct).
+func actionOf(n sdui.Node) map[string]any {
+	a, _ := prop(n, "action").(map[string]any)
+	return a
+}
+
+// slotNodes returns the nodes of a named slot.
+func slotNodes(n sdui.Node, name string) []sdui.Node { return n.GetSlots()[name].GetNodes() }
+
+// mapAt reads a nested object out of a decoded props/action map.
+func mapAt(m map[string]any, key string) map[string]any {
+	v, _ := m[key].(map[string]any)
+	return v
 }
 
 func TestSearchScreenEmptyQueryPromptsWithNoBackendCall(t *testing.T) {
@@ -151,8 +189,8 @@ func TestHomeScreenRendersHeroAndCatalogRows(t *testing.T) {
 	if !ok {
 		t.Fatal("home screen has no hero")
 	}
-	if hero.Props["title"] != "A Movie" {
-		t.Fatalf("hero title = %v, want the enriched item title", hero.Props["title"])
+	if prop(hero, "title") != "A Movie" {
+		t.Fatalf("hero title = %v, want the enriched item title", prop(hero, "title"))
 	}
 	if fake.gotPreviewRef.NativeID != "tt1" {
 		t.Fatalf("hero enriched ref = %+v, want the first item", fake.gotPreviewRef)
@@ -200,27 +238,27 @@ func TestSearchScreenRendersResultsWithVirtualAndInLibraryActions(t *testing.T) 
 	// The virtual card opens a detail preview, carrying its ref (materialising
 	// happens on that screen, not the card).
 	virtual := cards[0]
-	act, _ := virtual.Props["action"].(sdui.Action)
-	if act.Kind != sdui.KindNavigate || act.Screen == nil || *act.Screen != "detail" {
+	act := actionOf(virtual)
+	if act["kind"] != sdui.KindNavigate || act["screen"] != "detail" {
 		t.Fatalf("virtual card action = %+v, want Navigate detail", act)
 	}
-	ref, _ := act.Params["ref"].(map[string]any)
+	ref := mapAt(mapAt(act, "params"), "ref")
 	if ref["externalId"] != "tt1254207" || ref["provider"] != "stremio" {
 		t.Fatalf("detail ref = %+v, want the result's ref", ref)
 	}
 
 	// The in-library card navigates to detail and carries a badge.
 	inLib := cards[1]
-	if inLib.Props["badge"] != "In library" {
-		t.Fatalf("in-library card badge = %v, want \"In library\"", inLib.Props["badge"])
+	if prop(inLib, "badge") != "In library" {
+		t.Fatalf("in-library card badge = %v, want \"In library\"", prop(inLib, "badge"))
 	}
-	libAct, _ := inLib.Props["action"].(sdui.Action)
-	if libAct.Kind != sdui.KindNavigate || libAct.Screen == nil || *libAct.Screen != "detail" {
+	libAct := actionOf(inLib)
+	if libAct["kind"] != sdui.KindNavigate || libAct["screen"] != "detail" {
 		t.Fatalf("in-library card action = %+v, want Navigate detail", libAct)
 	}
 
 	// The whole tree serializes to JSON (the wire form the client renders).
-	if _, err := json.Marshal(node); err != nil {
+	if _, err := protojson.Marshal(node); err != nil {
 		t.Fatalf("screen does not serialize: %v", err)
 	}
 }
@@ -252,12 +290,12 @@ func TestCollectionsScreenListsCatalogsAsNavigableRows(t *testing.T) {
 	if len(buttons) != 1 {
 		t.Fatalf("buttons = %d, want 1 per catalog", len(buttons))
 	}
-	act, _ := buttons[0].Props["action"].(sdui.Action)
-	if act.Kind != sdui.KindNavigate || act.Screen == nil || *act.Screen != "catalog" {
+	act := actionOf(buttons[0])
+	if act["kind"] != sdui.KindNavigate || act["screen"] != "catalog" {
 		t.Fatalf("catalog row action = %+v, want Navigate catalog", act)
 	}
-	if act.Params["catalogId"] != "top" || act.Params["moduleId"] != "stremio" {
-		t.Fatalf("navigate params = %+v, want the catalog's module and id", act.Params)
+	if mapAt(act, "params")["catalogId"] != "top" || mapAt(act, "params")["moduleId"] != "stremio" {
+		t.Fatalf("navigate params = %+v, want the catalog's module and id", act)
 	}
 }
 
@@ -281,8 +319,8 @@ func TestCatalogScreenRendersItemsAsDetailLinks(t *testing.T) {
 	if len(cards) != 1 {
 		t.Fatalf("cards = %d, want 1", len(cards))
 	}
-	act, _ := cards[0].Props["action"].(sdui.Action)
-	if act.Kind != sdui.KindNavigate || act.Screen == nil || *act.Screen != "detail" {
+	act := actionOf(cards[0])
+	if act["kind"] != sdui.KindNavigate || act["screen"] != "detail" {
 		t.Fatalf("catalog item action = %+v, want Navigate detail", act)
 	}
 }
@@ -303,22 +341,22 @@ func TestVirtualDetailShowsAddToLibrary(t *testing.T) {
 	// The rich detail is a HeroBanner carrying the title, logo and the primary
 	// action; the poster docks in its aside slot (ADR 0034).
 	hero, ok := find(node, sdui.TypeHeroBanner)
-	if !ok || hero.Props["title"] != "Blade Runner 2049" {
+	if !ok || prop(hero, "title") != "Blade Runner 2049" {
 		t.Fatalf("hero = %+v, want the previewed title", hero.Props)
 	}
-	if hero.Props["logo"] == nil || hero.Props["logo"] == "" {
+	if prop(hero, "logo") == nil || prop(hero, "logo") == "" {
 		t.Fatalf("hero has no logo prop; want the clearlogo bound")
 	}
 	// The sole library affordance is Add to library, in the hero's actions slot.
-	actions := hero.Slots["actions"]
-	if len(actions) != 1 || actions[0].Props["label"] != "Add to library" {
+	actions := slotNodes(hero, "actions")
+	if len(actions) != 1 || prop(actions[0], "label") != "Add to library" {
 		t.Fatalf("hero actions = %+v, want a single Add to library button", actions)
 	}
-	act, _ := actions[0].Props["action"].(sdui.Action)
-	if act.Kind != sdui.KindInvoke || act.Mutation == nil || *act.Mutation != "importContent" {
+	act := actionOf(actions[0])
+	if act["kind"] != sdui.KindInvoke || act["mutation"] != "importContent" {
 		t.Fatalf("add action = %+v, want Invoke importContent", act)
 	}
-	ref, _ := act.Input["ref"].(map[string]any)
+	ref := mapAt(mapAt(act, "input"), "ref")
 	if ref["nativeId"] != "tt1254207" {
 		t.Fatalf("add ref = %+v, want the previewed ref", ref)
 	}
@@ -329,7 +367,7 @@ func TestVirtualDetailShowsAddToLibrary(t *testing.T) {
 		t.Fatalf("cast chips = %d, want 2", len(chips))
 	}
 	// The whole tree serializes to the wire form the client renders.
-	if _, err := json.Marshal(node); err != nil {
+	if _, err := protojson.Marshal(node); err != nil {
 		t.Fatalf("screen does not serialize: %v", err)
 	}
 }
@@ -349,11 +387,11 @@ func TestInLibraryDetailShowsInLibraryMarker(t *testing.T) {
 		t.Fatalf("in-library detail should render from metadata, not read node %q", fake.gotNodeID)
 	}
 	hero, ok := find(node, sdui.TypeHeroBanner)
-	if !ok || hero.Props["title"] != "Already Here" {
+	if !ok || prop(hero, "title") != "Already Here" {
 		t.Fatalf("hero = %+v, want the metadata title", hero.Props)
 	}
-	actions := hero.Slots["actions"]
-	if len(actions) != 1 || actions[0].Type != sdui.TypeBadge || actions[0].Props["label"] != "In library" {
+	actions := slotNodes(hero, "actions")
+	if len(actions) != 1 || actions[0].GetType() != sdui.TypeBadge || prop(actions[0], "label") != "In library" {
 		t.Fatalf("hero actions = %+v, want a single In library badge", actions)
 	}
 }
@@ -375,19 +413,19 @@ func TestSeriesDetailRendersEpisodesWithSeasonSelector(t *testing.T) {
 	if !ok {
 		t.Fatal("series detail has no SeasonSelector")
 	}
-	seasons, _ := selector.Props["seasons"].([]map[string]any)
+	seasons, _ := prop(selector, "seasons").([]any)
 	if len(seasons) != 2 {
 		t.Fatalf("season entries = %d, want 2", len(seasons))
 	}
-	if selector.Props["selected"] != "1" {
-		t.Fatalf("default selected season = %v, want \"1\"", selector.Props["selected"])
+	if prop(selector, "selected") != "1" {
+		t.Fatalf("default selected season = %v, want \"1\"", prop(selector, "selected"))
 	}
 	var rows []sdui.Node
 	findAll(node, sdui.TypeEpisodeRow, &rows)
 	if len(rows) != 2 {
 		t.Fatalf("season 1 episode rows = %d, want 2", len(rows))
 	}
-	if rows[0].Props["title"] != "The Boy in the Iceberg" || rows[0].Props["overview"] == nil {
+	if prop(rows[0], "title") != "The Boy in the Iceberg" || prop(rows[0], "overview") == nil {
 		t.Fatalf("episode row = %+v, want the title and synopsis", rows[0].Props)
 	}
 
@@ -395,12 +433,12 @@ func TestSeriesDetailRendersEpisodesWithSeasonSelector(t *testing.T) {
 	node2 := render(t, &Service{content: fake}, "detail", map[string]any{"ref": refParam, "season": "2"})
 	var rows2 []sdui.Node
 	findAll(node2, sdui.TypeEpisodeRow, &rows2)
-	if len(rows2) != 1 || rows2[0].Props["title"] != "The Avatar State" {
+	if len(rows2) != 1 || prop(rows2[0], "title") != "The Avatar State" {
 		t.Fatalf("season 2 rows = %+v, want the single S2 episode", rows2)
 	}
 	sel2, _ := find(node2, sdui.TypeSeasonSelector)
-	if sel2.Props["selected"] != "2" {
-		t.Fatalf("selected season = %v, want \"2\"", sel2.Props["selected"])
+	if prop(sel2, "selected") != "2" {
+		t.Fatalf("selected season = %v, want \"2\"", prop(sel2, "selected"))
 	}
 }
 
@@ -423,7 +461,7 @@ func TestDetailScreenRendersHeaderAndChildren(t *testing.T) {
 		t.Fatalf("backend saw node %q, want n-1", fake.gotNodeID)
 	}
 	header, ok := find(node, sdui.TypeDetailHeader)
-	if !ok || header.Props["title"] != "Breaking Bad" {
+	if !ok || prop(header, "title") != "Breaking Bad" {
 		t.Fatalf("detail header = %+v, want the node title", header.Props)
 	}
 	var cards []sdui.Node
@@ -431,8 +469,8 @@ func TestDetailScreenRendersHeaderAndChildren(t *testing.T) {
 	if len(cards) != 1 {
 		t.Fatalf("child cards = %d, want 1 per child", len(cards))
 	}
-	act, _ := cards[0].Props["action"].(sdui.Action)
-	if act.Kind != sdui.KindNavigate || act.Params["nodeId"] != "n-2" {
+	act := actionOf(cards[0])
+	if act["kind"] != sdui.KindNavigate || mapAt(act, "params")["nodeId"] != "n-2" {
 		t.Fatalf("child card action = %+v, want Navigate to the child's detail", act)
 	}
 }
@@ -447,7 +485,7 @@ func TestSettingsScreenHostsModuleUI(t *testing.T) {
 	if fake.gotSettingsModuleID != "stremio" {
 		t.Fatalf("settings screen resolved module %q, want the stremio default", fake.gotSettingsModuleID)
 	}
-	if node.Type != sdui.TypeScreen || node.Props["title"] != "Stremio addons" {
+	if node.Type != sdui.TypeScreen || prop(node, "title") != "Stremio addons" {
 		t.Fatalf("settings root = %+v, want the module's Screen", node.Props)
 	}
 	if _, ok := find(node, sdui.TypeSection); !ok {

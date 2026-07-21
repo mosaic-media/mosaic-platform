@@ -106,21 +106,16 @@ func TestDecodeParams(t *testing.T) {
 	}
 }
 
-// TestErrorNodeJSON proves a failed render produces the ErrorState UINode the
+// TestErrorNode proves a failed render produces the ErrorState UINode the
 // content region shows (ADR 0029's error surface).
-func TestErrorNodeJSON(t *testing.T) {
-	var node struct {
-		Type  string `json:"type"`
-		Props struct {
-			Category string `json:"category"`
-			Message  string `json:"message"`
-		} `json:"props"`
+func TestErrorNode(t *testing.T) {
+	node := errorNode("boom")
+	if node.GetType() != "ErrorState" {
+		t.Fatalf("error node type = %q, want ErrorState", node.GetType())
 	}
-	if err := json.Unmarshal(errorNodeJSON("boom"), &node); err != nil {
-		t.Fatalf("errorNodeJSON not valid JSON: %v", err)
-	}
-	if node.Type != "ErrorState" || node.Props.Message != "boom" {
-		t.Fatalf("error node = %+v, want ErrorState/boom", node)
+	props := node.GetProps().AsMap()
+	if props["category"] != "Unavailable" || props["message"] != "boom" {
+		t.Fatalf("error node props = %v, want Unavailable/boom", props)
 	}
 }
 
