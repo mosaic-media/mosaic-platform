@@ -23,12 +23,12 @@ github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo
 github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
 github.com/lib/pq v1.10.9/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
-github.com/mosaic-media/module-stremio-addons v0.8.0 h1:MdTu5m/+82/9EfFBAGVL3+C/aQk2UETX2CTbHeFjiTQ=
-github.com/mosaic-media/module-stremio-addons v0.8.0/go.mod h1:0TYJe70XBjrQMbtEzhKrO62UwEE6suAcB9kQVlLk2vk=
+github.com/mosaic-media/module-stremio-addons v0.9.0 h1:QOFld00boFkNpi8FuDL0o+8W0PX0Oj5yIz/ZFFumkos=
+github.com/mosaic-media/module-stremio-addons v0.9.0/go.mod h1:T+eJheHbi0isgFmwuJfVuhtNn2uAYs+CJ+R1CtNh3qk=
 github.com/mosaic-media/sdk v0.8.0 h1:naZ+9I0n4N7252mH6vymy48iWktTRVnesbb4wfjU87M=
 github.com/mosaic-media/sdk v0.8.0/go.mod h1:E+B7qxfjCSmymJPnBHN2/j38aM9+qAJbdaTVZBHHuyQ=
-github.com/mosaic-media/sdui v0.5.0 h1:Rq4YOh8JdE1JTVM3Nqd6Tkx0TO9eQ61BOvOMA2uAzG0=
-github.com/mosaic-media/sdui v0.5.0/go.mod h1:U2jxF+nZzupVfSU/ysMXOX1XZ1COhP89UoYA5SE8FrM=
+github.com/mosaic-media/sdui v0.6.1 h1:EFxbd8b1HmAl0mllEJ8GCStkfA6RSTaEIZilCUugiRM=
+github.com/mosaic-media/sdui v0.6.1/go.mod h1:U2jxF+nZzupVfSU/ysMXOX1XZ1COhP89UoYA5SE8FrM=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 h1:lZUw3E0/J3roVtGQ+SCrUrg3ON6NgVqpn3+iol9aGu4=
