@@ -13,7 +13,11 @@ require golang.org/x/crypto v0.54.0
 
 require github.com/mosaic-media/sdui v0.3.0
 
-require github.com/coder/websocket v1.8.15
+require (
+	connectrpc.com/connect v1.20.0
+	golang.org/x/net v0.57.0
+	google.golang.org/protobuf v1.36.11
+)
 
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect

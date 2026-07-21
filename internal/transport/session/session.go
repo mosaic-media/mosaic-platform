@@ -1,0 +1,292 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-FileCopyrightText: 2026 the Mosaic authors
+// Linking exception: see LICENSE-EXCEPTION.
+
+package session
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"time"
+
+	"connectrpc.com/connect"
+
+	sessionv1 "github.com/mosaic-media/platform/internal/gen/mosaic/session/v1"
+	"github.com/mosaic-media/platform/internal/gen/mosaic/session/v1/sessionv1connect"
+	"github.com/mosaic-media/platform/internal/platform/app"
+	"github.com/mosaic-media/platform/internal/platform/contracts"
+	"github.com/mosaic-media/platform/internal/transport/screens"
+)
+
+// inputDebounce is the server-side coalescing window for search-as-you-type
+// (ADR 0041, preserving ADR 0032's backstop). Rapid SubmitInput intents within
+// this window collapse to a single render for the latest text, so a fast typist
+// cannot fan out a request per keystroke to the upstream addons. It sits behind
+// the client's own ~220ms debounce and is a touch shorter so it never adds
+// perceptible lag when the client already coalesced.
+const inputDebounce = 150 * time.Millisecond
+
+// debounceRenderTimeout bounds the background render a debounce timer runs. The
+// timer fires after the SubmitInput call has returned, so it cannot use that
+// call's context; it renders against a fresh bounded context instead.
+const debounceRenderTimeout = 15 * time.Second
+
+// contentRegion is the named slot the current screen renders into (ADR 0031).
+// A navigate/input replaces this region; the shell frame around it persists.
+const contentRegion = "content"
+
+// Handler implements the SessionService (ADR 0041). It owns the session store,
+// builds its own screen service (a thin projection wrapper over the application
+// query services), and routes intents to the application command/query services.
+// Construct once and mount its Connect handler on the API mux.
+type Handler struct {
+	mgr     *Manager
+	screens *screens.Service
+	svc     *app.Service
+}
+
+// Compile-time proof the handler satisfies the generated service contract.
+var _ sessionv1connect.SessionServiceHandler = (*Handler)(nil)
+
+// NewHandler wires the session transport over the application services and the
+// artwork rewriter (ADR 0030), the same inputs the screen emit-side takes.
+func NewHandler(svc *app.Service, artwork func(string) string) *Handler {
+	return &Handler{
+		mgr:     NewManager(),
+		screens: screens.NewService(svc, artwork),
+		svc:     svc,
+	}
+}
+
+// Manager exposes the session store for lifecycle wiring (reaper, shutdown).
+func (h *Handler) Manager() *Manager { return h.mgr }
+
+// Attach (re)binds a caller to a session and, if a screen is named, re-asserts
+// it and re-renders the content — the reconnect re-declaration ADR 0032 did over
+// the socket, now an explicit intent (ADR 0041). With no screen it just ensures
+// the session exists.
+func (h *Handler) Attach(ctx context.Context, req *connect.Request[sessionv1.AttachRequest]) (*connect.Response[sessionv1.Ack], error) {
+	r := req.Msg
+	if r.GetSession() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("session is required"))
+	}
+	s := h.mgr.session(r.GetSession())
+	if r.GetScreen() != "" {
+		s.setCurrent(route{screen: r.GetScreen(), params: decodeParams(r.GetParams())})
+		h.pushContent(ctx, s)
+	}
+	return connect.NewResponse(&sessionv1.Ack{}), nil
+}
+
+// Navigate opens a screen and renders it into the content region.
+func (h *Handler) Navigate(ctx context.Context, req *connect.Request[sessionv1.NavigateRequest]) (*connect.Response[sessionv1.Ack], error) {
+	r := req.Msg
+	if r.GetSession() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("session is required"))
+	}
+	s := h.mgr.session(r.GetSession())
+	s.setCurrent(route{screen: r.GetScreen(), params: decodeParams(r.GetParams())})
+	h.pushContent(ctx, s)
+	return connect.NewResponse(&sessionv1.Ack{}), nil
+}
+
+// Invoke runs a named action (an SDUI Action, ADR 0029) and pushes its outcome.
+// A malformed intent — an empty session or an unknown action — fails as a
+// Connect error. A domain failure of a known action (an import that could not
+// source, say) is a user-facing outcome, so it is surfaced as a danger toast on
+// the push lane and the intent still Acks. Success pushes a confirmation toast
+// and re-renders the current content so the change shows.
+func (h *Handler) Invoke(ctx context.Context, req *connect.Request[sessionv1.InvokeRequest]) (*connect.Response[sessionv1.Ack], error) {
+	r := req.Msg
+	if r.GetSession() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("session is required"))
+	}
+	if !safeAction(r.GetAction()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unknown action"))
+	}
+	s := h.mgr.session(r.GetSession())
+	if err := h.dispatch(ctx, s.caller, r.GetAction(), r.GetInput()); err != nil {
+		s.enqueue(toastMsg(errorMessage(err), "danger"))
+		return connect.NewResponse(&sessionv1.Ack{}), nil
+	}
+	s.enqueue(toastMsg(invokeToast(r.GetAction()), "success"))
+	h.pushContent(ctx, s)
+	return connect.NewResponse(&sessionv1.Ack{}), nil
+}
+
+// SubmitInput carries one search-as-you-type keystroke; the Platform coalesces a
+// burst and renders the search screen for the latest text. This does not become
+// the navigation route, so clearing the field returns to whatever was open.
+func (h *Handler) SubmitInput(ctx context.Context, req *connect.Request[sessionv1.InputRequest]) (*connect.Response[sessionv1.Ack], error) {
+	r := req.Msg
+	if r.GetSession() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("session is required"))
+	}
+	s := h.mgr.session(r.GetSession())
+	h.onInput(s, r.GetValue())
+	return connect.NewResponse(&sessionv1.Ack{}), nil
+}
+
+// Subscribe is the push lane: one long-lived server-stream per session. On a
+// fresh or rebuilt connect it pushes the shell and initial content; on a resume
+// it replays what the client missed from its cursor. It blocks until the client
+// disconnects, the session closes, or a newer Subscribe supersedes it.
+func (h *Handler) Subscribe(ctx context.Context, req *connect.Request[sessionv1.SubscribeRequest], stream *connect.ServerStream[sessionv1.ServerMessage]) error {
+	r := req.Msg
+	if r.GetSession() == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("session is required"))
+	}
+	s := h.mgr.session(r.GetSession())
+	onConnect := func() {
+		if s.currentRoute().screen == "" {
+			s.setCurrent(route{screen: "home"})
+		}
+		h.pushShell(ctx, s)
+		h.pushContent(ctx, s)
+	}
+	return s.serve(ctx, r.GetResumeCursor(), onConnect, stream.Send)
+}
+
+// pushShell renders the app shell and enqueues it (ADR 0031).
+func (h *Handler) pushShell(ctx context.Context, s *liveSession) {
+	node, err := h.screens.Render(ctx, "shell", s.caller, nil)
+	if err != nil {
+		s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, errorNodeJSON(err.Error())))
+		return
+	}
+	s.enqueue(shellMsg(mustJSON(node)))
+}
+
+// pushContent renders the current route into the content region.
+func (h *Handler) pushContent(ctx context.Context, s *liveSession) {
+	r := s.currentRoute()
+	h.pushRender(ctx, s, r.screen, r.params)
+}
+
+// pushRender renders a screen and replaces the content region with it, or an
+// error node if the render fails (ADR 0029's error surface, unchanged).
+func (h *Handler) pushRender(ctx context.Context, s *liveSession, screen string, params map[string]any) {
+	node, err := h.screens.Render(ctx, screen, s.caller, params)
+	if err != nil {
+		s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, errorNodeJSON(err.Error())))
+		return
+	}
+	s.enqueue(regionMsg(contentRegion, sessionv1.RegionUpdate_REPLACE, mustJSON(node)))
+}
+
+// onInput records the latest search text and (re)arms the debounce timer, so a
+// burst of keystrokes collapses to one render for the final value. The timer
+// fires on its own goroutine and enqueues, which the session lock makes safe.
+func (h *Handler) onInput(s *liveSession, text string) {
+	s.inputMu.Lock()
+	defer s.inputMu.Unlock()
+	s.pendingIn = text
+	if s.inputTimer != nil {
+		s.inputTimer.Stop()
+	}
+	s.inputTimer = time.AfterFunc(inputDebounce, func() {
+		s.inputMu.Lock()
+		t := s.pendingIn
+		s.inputMu.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), debounceRenderTimeout)
+		defer cancel()
+		if strings.TrimSpace(t) == "" {
+			// Cleared the field: return the content region to the open screen
+			// rather than an empty search.
+			h.pushContent(ctx, s)
+			return
+		}
+		h.pushRender(ctx, s, "search", map[string]any{"text": t})
+	})
+}
+
+// --- ServerMessage constructors (encoding option (a): UINode as SDUI JSON
+// bytes inside the protobuf envelope). ---
+
+func shellMsg(node []byte) *sessionv1.ServerMessage {
+	return &sessionv1.ServerMessage{Body: &sessionv1.ServerMessage_Shell{Shell: &sessionv1.ShellUpdate{UiNode: node}}}
+}
+
+func regionMsg(region string, op sessionv1.RegionUpdate_Op, node []byte) *sessionv1.ServerMessage {
+	return &sessionv1.ServerMessage{Body: &sessionv1.ServerMessage_Region{Region: &sessionv1.RegionUpdate{Region: region, Op: op, UiNode: node}}}
+}
+
+func toastMsg(message, tone string) *sessionv1.ServerMessage {
+	return &sessionv1.ServerMessage{Body: &sessionv1.ServerMessage_Toast{Toast: &sessionv1.Toast{Message: message, Tone: tone}}}
+}
+
+// invokeToast is the confirmation shown when an action succeeds. It reflects the
+// action rather than assuming a library import, so a settings change does not
+// claim to have added something to the library.
+func invokeToast(action string) string {
+	switch action {
+	case "importContent":
+		return "Added to library"
+	case "configureModule":
+		return "Settings saved"
+	default:
+		return "Done"
+	}
+}
+
+// mustJSON marshals a UINode subtree to its SDUI JSON encoding. A screen node is
+// always marshalable (it is plain maps/slices/strings); a marshal failure would
+// be a programming error, so the empty object it falls back to is a safe floor.
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte("{}")
+	}
+	return b
+}
+
+// decodeParams reads a screen's JSON param object into the map the screen
+// builders take. Absent or empty params decode to nil, which the builders read
+// as "no params".
+func decodeParams(b []byte) map[string]any {
+	if len(b) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// errorNodeJSON is the ErrorState UINode a failed render puts in the content
+// region (ADR 0029's error surface).
+func errorNodeJSON(message string) []byte {
+	return mustJSON(map[string]any{
+		"type":  "ErrorState",
+		"props": map[string]any{"category": "Unavailable", "message": message},
+	})
+}
+
+// errorMessage extracts a user-facing message from a Platform error, falling
+// back to the raw error text for anything uncategorised.
+func errorMessage(err error) string {
+	var cErr *contracts.Error
+	if errors.As(err, &cErr) {
+		return cErr.Message
+	}
+	return err.Error()
+}
+
+// safeAction guards the action name against an unknown or malformed value. It
+// must be a plain identifier — the dispatch switch then maps it to a service.
+func safeAction(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		alpha := r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		if !alpha && !(i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
