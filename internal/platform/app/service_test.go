@@ -80,7 +80,7 @@ func TestCreateLocalUserFollowsCommandBoundaryOrder(t *testing.T) {
 		t.Fatalf("outbox = %+v, want exactly one user.created event", outbox)
 	}
 
-	// Proves the fixed MEG-015 §04 order: authenticate and policy
+	// Proves the fixed command order: authenticate and policy
 	// evaluation both happen before the UnitOfWork opens, and every write
 	// (user, credential, outbox) happens inside that same transaction.
 	assertTrace(t, tr, []string{
@@ -99,7 +99,7 @@ func TestCreateLocalUserDeniedByPolicyDoesNotMutateState(t *testing.T) {
 	db := newFakeDB()
 	tr := &trace{}
 	// A caller with a valid session but no role grants at all: the real
-	// policy.Engine must deny by default (MEG-009 §04).
+	// policy.Engine must deny by default.
 	db.seedSession("session-nobody", "user-nobody", testNow)
 	svc := newTestService(db, tr, testNow)
 
@@ -116,7 +116,7 @@ func TestCreateLocalUserDeniedByPolicyDoesNotMutateState(t *testing.T) {
 		t.Fatalf("CategoryOf(err) = %s, want %s", got, contracts.PermissionDenied)
 	}
 
-	// This is the MEG-015 §11 Policy gate: a denied action must not
+	// This is the Policy gate: a denied action must not
 	// mutate any state.
 	db.mu.Lock()
 	_, persisted := db.usernames["blocked.user"]

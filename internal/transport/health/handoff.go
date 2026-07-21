@@ -2,17 +2,16 @@
 // SPDX-FileCopyrightText: 2026 the Mosaic authors
 // Linking exception: see LICENSE-EXCEPTION.
 
-// Package health is the MEG-015 §10 Supervisor handoff HTTP transport:
+// Package health is the Supervisor handoff HTTP transport:
 // readiness, liveness, Generation metadata, migration status and config
 // activation status. Every handler's entire body calls into
 // internal/platform/runtime — the same "transport calls Platform-tier
 // logic only, never a database or Module directly" rule
-// internal/transport/graphql already enforces for MEG-015 §09; here it
-// generalizes to every transport, not just GraphQL. boundary_test.go
-// statically enforces it. The shutdown hook itself is not an HTTP
-// endpoint — MEG-015 §10 calls it a "hook", and a process-level signal
-// handler (the composition root) is what actually invokes
-// runtime.Shutdown; see cmd/mosaic-platform/main.go.
+// internal/transport/graphql already enforces, generalized to every
+// transport, not just GraphQL. boundary_test.go statically enforces it.
+// The shutdown hook itself is not an HTTP endpoint — it is a hook, and a
+// process-level signal handler (the composition root) is what actually
+// invokes runtime.Shutdown; see cmd/mosaic-platform/main.go.
 package health
 
 import (
@@ -24,8 +23,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/runtime"
 )
 
-// Handoff wires the MEG-015 §10 Required Handoff Surface to a real,
-// executable HTTP mux. It holds no PostgreSQL or Module-specific types —
+// Handoff wires the Supervisor handoff surface to a real, executable
+// HTTP mux. It holds no PostgreSQL or Module-specific types —
 // only the adapter-agnostic pieces internal/platform/runtime already
 // defines — so this package stays a pure transport, testable without a
 // database.

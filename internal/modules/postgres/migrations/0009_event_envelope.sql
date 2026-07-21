@@ -1,4 +1,4 @@
--- Migration 0009 — Event envelope and failure bookkeeping (MEG-015 §06).
+-- Migration 0009 — Event envelope and failure bookkeeping.
 --
 -- Expands event_outbox with the full event envelope (recorded_at, actor,
 -- tenant_scope, correlation_id, causation_id, redaction_class) and the
@@ -6,7 +6,7 @@
 -- next_retry_at, dead_lettered, owning_component).
 --
 -- This is a separate, additive migration rather than an edit to 0005 —
--- expand/contract (MEG-015 §05): editing an already-applied migration would
+-- expand/contract: editing an already-applied migration would
 -- change its checksum and trip the incompatible-schema guard. Additive
 -- columns carry safe defaults so the change applies cleanly to a table that
 -- already holds rows.

@@ -1,8 +1,8 @@
--- Migration 0005 — Events (MEG-015 §05, First Schema Areas: Events).
+-- Migration 0005 — Events.
 -- Tables: event outbox, event deliveries, event checkpoints.
 -- This slice persists into event_outbox via the EventOutbox contract only.
 -- The outbox worker, deliveries and checkpoints logic is a LATER slice
--- (MEG-015 §12 — Transactional outbox / Event Bus); their tables exist now.
+-- (the transactional outbox / Event Bus); their tables exist now.
 
 CREATE TABLE IF NOT EXISTS event_outbox (
     id           text        PRIMARY KEY,

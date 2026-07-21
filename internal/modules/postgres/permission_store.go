@@ -14,7 +14,7 @@ import (
 )
 
 // permissionStore is the PostgreSQL contracts.PermissionStore. It backs the
-// policy engine's RBAC lookups (MEG-009 §04).
+// policy engine's RBAC lookups.
 type permissionStore struct {
 	q queryer
 }

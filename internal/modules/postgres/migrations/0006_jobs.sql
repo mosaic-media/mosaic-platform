@@ -1,4 +1,4 @@
--- Migration 0006 — Jobs (MEG-015 §05, First Schema Areas: Jobs).
+-- Migration 0006 — Jobs.
 -- Tables: jobs, job attempts, job logs. Table only this slice; the job
 -- runner is not part of the Platform foundation build sequence yet.
 

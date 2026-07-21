@@ -13,8 +13,7 @@ import (
 )
 
 // ActionConfigRead is the policy action evaluated for
-// GetActiveConfigVersion and GetConfigVersion (MEG-015 §09 —
-// Configuration: "active version").
+// GetActiveConfigVersion and GetConfigVersion.
 const ActionConfigRead policy.Action = "config.read"
 
 // GetActiveConfigVersionQuery reads the currently Active configuration
@@ -36,7 +35,7 @@ func validateGetActiveConfigVersionQuery(query GetActiveConfigVersionQuery) erro
 	return nil
 }
 
-// GetActiveConfigVersion implements the query boundary from MEG-015 §04,
+// GetActiveConfigVersion implements the query order,
 // reading through the direct (non-transactional) ConfigStore handle.
 func (s *Service) GetActiveConfigVersion(ctx context.Context, query GetActiveConfigVersionQuery) (GetActiveConfigVersionResult, error) {
 	if err := validateGetActiveConfigVersionQuery(query); err != nil {

@@ -16,7 +16,7 @@ import (
 
 // configStore is the PostgreSQL contracts.ConfigStore. Persistence and
 // status bookkeeping only: the activation state machine itself lives in
-// internal/platform/config (MEG-015 §08).
+// internal/platform/config.
 type configStore struct {
 	q queryer
 }

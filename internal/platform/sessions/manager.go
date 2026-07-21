@@ -13,8 +13,8 @@ import (
 )
 
 // DefaultLifetime is the session lifetime Manager.Issue applies. A
-// configurable lifetime belongs to the Configuration slice (MEG-015 §08);
-// this is a fixed placeholder until then.
+// configurable lifetime belongs to the Configuration slice; this is a
+// fixed placeholder until then.
 const DefaultLifetime = 24 * time.Hour
 
 // Manager issues, validates and revokes sessions against whichever
@@ -52,8 +52,8 @@ func (m *Manager) Issue(ctx context.Context, store contracts.SessionStore, userI
 // Validate resolves sessionID and confirms it is neither revoked nor
 // expired. Every SessionStore failure and every revoked/expired session
 // is translated into the Unauthenticated category, so callers never need
-// to branch on NotFound versus revocation versus expiry themselves
-// (MEG-001 §08 — Translate Errors).
+// to branch on NotFound versus revocation versus expiry themselves,
+// per the seven error categories.
 func (m *Manager) Validate(ctx context.Context, store contracts.SessionStore, sessionID domain.SessionID) (domain.Session, error) {
 	if sessionID == "" {
 		return domain.Session{}, contracts.NewError(contracts.Unauthenticated, "missing caller session")
@@ -78,8 +78,8 @@ func (m *Manager) Validate(ctx context.Context, store contracts.SessionStore, se
 }
 
 // Revoke revokes sessionID through store. Remote sign-out must go through
-// this path rather than the client discarding its session handle
-// (MEG-015 §07 — Session Model).
+// this path rather than the client discarding its session handle,
+// per the session model.
 func (m *Manager) Revoke(ctx context.Context, store contracts.SessionStore, sessionID domain.SessionID) error {
 	return store.Revoke(ctx, sessionID)
 }

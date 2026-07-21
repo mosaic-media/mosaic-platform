@@ -18,7 +18,7 @@ import (
 )
 
 // TestDiagnosticsRegistryReportsRealStateAcrossPostgresWorkerAndBus is the
-// MEG-015 §12 Diagnostics exit criterion proven end to end: a
+// Diagnostics exit criterion proven end to end: a
 // diagnostics.Registry wired to the real PostgreSQL adapter, the real
 // outbox Worker and the real event Bus reports genuinely different,
 // live-computed health for each — not a hardcoded "ok" anywhere — and that

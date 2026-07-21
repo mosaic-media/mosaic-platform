@@ -20,18 +20,17 @@ const (
 )
 
 // Worker drains committed outbox rows and publishes them through an
-// EventPublisher (MEG-015 §06 — First Event Model): Application service ->
-// PostgreSQL transaction -> Outbox row -> Outbox worker -> In-process Event
-// Bus -> Subscribers.
+// EventPublisher: Application service -> PostgreSQL transaction -> Outbox row
+// -> Outbox worker -> In-process Event Bus -> Subscribers.
 //
 // On a successful Publish, the worker marks the event published. On a
 // failed Publish, it records the failure through EventOutbox.RecordFailure,
 // which applies the Platform delivery policy to schedule the next retry or
-// dead-letter the event (MEG-015 §06 — Failure Behaviour) — a failed
-// delivery is recorded and retried, never silently dropped.
+// dead-letter the event — a failed delivery is recorded and retried, never
+// silently dropped.
 //
-// Worker also implements contracts.ComponentHealthReporter (MEG-015 §09 —
-// Diagnostics Model): every RunOnce call updates real health bookkeeping —
+// Worker also implements contracts.ComponentHealthReporter, per the
+// diagnostics model: every RunOnce call updates real health bookkeeping —
 // last successful check, last failure category, a degraded reason — rather
 // than a hardcoded "ok".
 type Worker struct {
@@ -76,9 +75,8 @@ func WithClock(clock contracts.Clock) Option {
 }
 
 // NewWorker builds a Worker. component identifies this worker as the
-// owning component recorded against failed deliveries (MEG-015 §06 —
-// Failure Behaviour: "owning component") and reported as its own
-// diagnostics identity (MEG-015 §09).
+// owning component recorded against failed deliveries and reported as its
+// own diagnostics identity.
 func NewWorker(outbox contracts.EventOutbox, publisher contracts.EventPublisher, component string, opts ...Option) *Worker {
 	w := &Worker{
 		outbox:       outbox,

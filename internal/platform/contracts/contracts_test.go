@@ -13,9 +13,9 @@ import (
 )
 
 // The types and var blocks below exist solely to prove, at compile time,
-// that each interface in the first contract set (MEG-015 §03) is
-// implementable using only domain value types. There is no runtime
-// behaviour to assert; a failed build is the test failure.
+// that each interface in the first contract set is implementable using only
+// domain value types. There is no runtime behaviour to assert; a failed build
+// is the test failure.
 
 type mockUnitOfWork struct{}
 

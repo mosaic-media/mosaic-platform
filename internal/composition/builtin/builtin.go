@@ -5,9 +5,8 @@
 package builtin
 
 // Manifest is a built-in module's declaration of the Platform contracts it
-// fulfills. It mirrors the manifest a future external Module (MEG-006) would
-// publish, reduced to what this slice needs: an identity, a version and the
-// list of fulfilled contract names.
+// fulfills. It mirrors the manifest a future external Module would publish,
+// reduced to an identity, a version and the list of fulfilled contract names.
 type Manifest struct {
 	ID       string
 	Version  string

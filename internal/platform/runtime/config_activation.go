@@ -13,13 +13,13 @@ import (
 )
 
 // ConfigActivationStatus reports the currently active configuration
-// version and its reload class (MEG-015 §10 — Config activation status).
+// version and its reload class.
 type ConfigActivationStatus struct {
 	HasActiveVersion bool
 	VersionID        string
 	ActivatedAt      time.Time
 	// ReloadClass is always Hot for whatever IS active: config.Manager's
-	// Activate (MEG-015 §08) only ever transitions a version to Active
+	// Activate only ever transitions a version to Active
 	// when its change was Hot-classified — a Generation/Restart/Recovery
 	// change is left Validated instead, precisely so it never reaches
 	// here. This reports that structural invariant directly rather than

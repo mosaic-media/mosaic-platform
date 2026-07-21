@@ -11,7 +11,7 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// scheme is the secret reference URI prefix MEG-015 §08 shows:
+// scheme is the secret reference URI prefix, e.g.
 // "storage.postgres.password = secret://platform/postgres/password".
 const scheme = "secret://"
 

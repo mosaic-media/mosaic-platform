@@ -17,7 +17,7 @@ import (
 // fakeCredential is a deliberately secret-shaped string — the exit
 // criterion this test exists to prove ("write a test that deliberately
 // includes something secret-shaped ... and confirms it does NOT appear in
-// the output", MEG-015 §11/§12).
+// the output").
 const fakeCredential = "hunter2-super-secret-password-AKIAFAKEEXAMPLE1234"
 
 func TestLoggerNeverWritesSecretOrSensitiveFieldValues(t *testing.T) {

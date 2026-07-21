@@ -13,7 +13,7 @@ import (
 )
 
 // TestSecretReferenceResolvesEndToEndThroughRealVault proves the full
-// MEG-015 §12 exit criterion path with real components, not fakes: parse
+// exit criterion path with real components, not fakes: parse
 // a secret:// reference the way a config value would carry it, resolve it
 // through a Broker backed by a real encrypted LocalVault (the keychain is
 // forced unavailable here, since this environment has no OS keychain

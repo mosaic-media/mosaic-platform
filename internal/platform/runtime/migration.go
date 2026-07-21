@@ -7,8 +7,7 @@ package runtime
 import "sync"
 
 // MigrationPhase is where database migration stands relative to this
-// process's boot (MEG-015 §10 — Migration status: "required, running,
-// complete or failed").
+// process's boot: required, running, complete or failed.
 type MigrationPhase string
 
 const (
@@ -22,7 +21,7 @@ const (
 	MigrationComplete MigrationPhase = "complete"
 	// MigrationFailed means the most recent migration attempt failed —
 	// missing, incompatible (checksum mismatch), partially applied, or
-	// database-ahead (MEG-007 §10), reported via Detail.
+	// database-ahead, reported via Detail.
 	MigrationFailed MigrationPhase = "failed"
 )
 
@@ -38,7 +37,7 @@ type MigrationStatus struct {
 // Running rather than a stale pre-migration snapshot. It holds no
 // PostgreSQL dependency itself — the composition root calls Begin before
 // its own postgres.Migrate call and Complete with that call's result,
-// keeping this package adapter-agnostic (MEG-015 §02).
+// keeping this package adapter-agnostic.
 type MigrationTracker struct {
 	mu     sync.Mutex
 	phase  MigrationPhase

@@ -15,10 +15,9 @@ import (
 // ActionUserStatusUpdate is the policy action evaluated for SetUserStatus.
 const ActionUserStatusUpdate policy.Action = "user.status.update"
 
-// SetUserStatusCommand sets a target user's admin-managed status
-// (MEG-015 §09 — Users: "admin-managed status"). CallerSessionID must
-// belong to an authorized administrator, not the target user (MEG-009 §04
-// — Administrative Operations), matching CreateLocalUser's shape.
+// SetUserStatusCommand sets a target user's admin-managed status.
+// CallerSessionID must belong to an authorized administrator, not the
+// target user, matching CreateLocalUser's shape.
 type SetUserStatusCommand struct {
 	CallerSessionID domain.SessionID
 	TargetUserID    domain.UserID
@@ -46,7 +45,7 @@ func validateSetUserStatusCommand(cmd SetUserStatusCommand) error {
 	return nil
 }
 
-// SetUserStatus implements the command boundary from MEG-015 §04.
+// SetUserStatus implements the command boundary.
 func (s *Service) SetUserStatus(ctx context.Context, cmd SetUserStatusCommand) (SetUserStatusResult, error) {
 	// 1. validate command shape.
 	if err := validateSetUserStatusCommand(cmd); err != nil {

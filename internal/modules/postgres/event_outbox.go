@@ -17,10 +17,9 @@ import (
 
 // eventOutbox is the PostgreSQL contracts.EventOutbox. Append is written to
 // run inside the same UnitOfWork transaction as the state change it records,
-// so state and event commit atomically (MEG-015 §05). It persists the full
-// event envelope (§06) and the delivery failure-tracking columns; the worker
-// that reads unpublished rows, publishes them and drives RecordFailure is a
-// later slice.
+// so state and event commit atomically. It persists the full event envelope
+// and the delivery failure-tracking columns; the worker that reads
+// unpublished rows, publishes them and drives RecordFailure is a later slice.
 type eventOutbox struct {
 	q      queryer
 	policy domain.DeliveryPolicy
@@ -37,11 +36,13 @@ const eventOutboxColumns = `id, type, occurred_at, recorded_at, actor, tenant_sc
 	correlation_id, causation_id, payload, redaction_class,
 	published_at, attempts, last_error_category, next_retry_at, dead_lettered, owning_component`
 
+// Append persists one outbox event, defaulting an unclassified payload to the
+// sensitive redaction class so it commits atomically with the state change.
 func (o *eventOutbox) Append(ctx context.Context, event domain.OutboxEvent) error {
 	redaction := event.RedactionClass
 	if redaction == "" {
-		// Redact by default when a producer does not classify the payload
-		// (MEG-015 §07/§09 — support bundles must be redacted-safe).
+		// Redact by default when a producer does not classify the payload —
+		// support bundles must be redacted-safe.
 		redaction = domain.RedactionSensitive
 	}
 	_, err := o.q.Exec(ctx,
@@ -64,8 +65,7 @@ func (o *eventOutbox) Append(ctx context.Context, event domain.OutboxEvent) erro
 // deliverable events oldest first. Dead-lettered events are excluded because
 // they will never be published; an event still waiting out its retry
 // backoff (next_retry_at in the future) is excluded until it becomes due,
-// using the event_outbox_deliverable_idx partial index (migration 0009)
-// (MEG-015 §06 — Failure Behaviour).
+// using the event_outbox_deliverable_idx partial index (migration 0009).
 func (o *eventOutbox) ListUnpublished(ctx context.Context, limit int) ([]domain.OutboxEvent, error) {
 	if limit <= 0 {
 		return nil, contracts.NewError(contracts.InvalidArgument, "limit must be positive")
@@ -98,6 +98,8 @@ func (o *eventOutbox) ListUnpublished(ctx context.Context, limit int) ([]domain.
 	return events, nil
 }
 
+// MarkPublished stamps an event as published, treating a re-publish as
+// idempotent and a missing event as NotFound.
 func (o *eventOutbox) MarkPublished(ctx context.Context, id domain.EventID) error {
 	now := time.Now().UTC()
 	tag, err := o.q.Exec(ctx,
@@ -123,7 +125,7 @@ func (o *eventOutbox) MarkPublished(ctx context.Context, id domain.EventID) erro
 
 // RecordFailure increments the attempt count for an event, records the error
 // category and owning component, and applies the delivery policy to either
-// schedule the next retry or dead-letter the event (MEG-015 §06). It is
+// schedule the next retry or dead-letter the event. It is
 // idempotent-safe against a missing event (NotFound) and never touches an
 // already-published or already-dead-lettered event.
 func (o *eventOutbox) RecordFailure(ctx context.Context, id domain.EventID, category contracts.ErrorCategory, component string) error {

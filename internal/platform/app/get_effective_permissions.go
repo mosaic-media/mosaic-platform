@@ -14,8 +14,7 @@ import (
 )
 
 // GetEffectivePermissionsQuery reads the flattened set of permissions a
-// user holds through all of its roles (MEG-015 §09 — Permissions:
-// "effective permission inspection").
+// user holds through all of its roles.
 type GetEffectivePermissionsQuery struct {
 	CallerSessionID domain.SessionID
 	TargetUserID    domain.UserID
@@ -38,8 +37,8 @@ func validateGetEffectivePermissionsQuery(query GetEffectivePermissionsQuery) er
 	return nil
 }
 
-// GetEffectivePermissions implements the query boundary from MEG-015 §04.
-// It reuses the same role lookup policy.Engine.Authorize drives, so
+// GetEffectivePermissions implements the query boundary, per the command
+// order. It reuses the same role lookup policy.Engine.Authorize drives, so
 // "effective permissions" always matches what would actually be allowed.
 func (s *Service) GetEffectivePermissions(ctx context.Context, query GetEffectivePermissionsQuery) (GetEffectivePermissionsResult, error) {
 	if err := validateGetEffectivePermissionsQuery(query); err != nil {

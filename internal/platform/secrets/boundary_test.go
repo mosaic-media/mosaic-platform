@@ -13,10 +13,9 @@ import (
 	"testing"
 )
 
-// forbiddenFileReadPatterns are direct file-read APIs MEG-015 §08 says
-// application services and Modules must not use to read secret/credential
-// material — they must go through the Secret Broker (internal/platform/
-// secrets) instead.
+// forbiddenFileReadPatterns are direct file-read APIs application services
+// and Modules must not use to read secret/credential material — they must
+// go through the Secret Broker (internal/platform/secrets) instead.
 var forbiddenFileReadPatterns = []string{
 	"os.ReadFile(",
 	"os.Open(",
@@ -24,8 +23,9 @@ var forbiddenFileReadPatterns = []string{
 	"ioutil.ReadFile(",
 }
 
-// scannedRoots are the package families MEG-015 §08 names explicitly:
-// "Application services and Modules must not read secret files directly."
+// scannedRoots are the package families the Secret Broker rule names
+// explicitly: "Application services and Modules must not read secret files
+// directly."
 // internal/transport is included too, defensively, though not named by that
 // sentence — a transport reading a credential file directly would be just
 // as wrong.
@@ -35,8 +35,8 @@ var scannedRoots = []string{
 	filepath.Join("internal", "transport"),
 }
 
-// TestApplicationServicesAndModulesDoNotReadFilesDirectly is the MEG-015
-// §12 static check for the Secret broker exit criterion: no package outside
+// TestApplicationServicesAndModulesDoNotReadFilesDirectly is the static
+// check for the Secret broker exit criterion: no package outside
 // internal/platform/secrets (and the internal/adapters/filesystem helper it
 // uses privately) reads credential files directly. It is a coarse,
 // text-level scan rather than an AST/import-level check, but it is a real
@@ -66,7 +66,7 @@ func TestApplicationServicesAndModulesDoNotReadFilesDirectly(t *testing.T) {
 			rel, _ := filepath.Rel(root, path)
 			for _, pattern := range forbiddenFileReadPatterns {
 				if strings.Contains(string(contents), pattern) {
-					t.Errorf("%s: contains %q — application services, Modules and transports must access secrets through the Secret Broker (internal/platform/secrets), never by reading files directly (MEG-015 §08)", rel, pattern)
+					t.Errorf("%s: contains %q — application services, Modules and transports must access secrets through the Secret Broker (internal/platform/secrets), never by reading files directly", rel, pattern)
 				}
 			}
 			return nil

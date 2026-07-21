@@ -30,6 +30,9 @@ func NewHealthProbe(pool *pgxpool.Pool) contracts.HealthProbe {
 	return &healthProbe{pool: pool, component: "postgres"}
 }
 
+// Check reports the storage component's readiness as a point-in-time status:
+// healthy when reachable and fully migrated, degraded when behind on
+// migrations, unavailable when unreachable or schema-incompatible.
 func (h *healthProbe) Check(ctx context.Context) (domain.HealthStatus, error) {
 	now := time.Now().UTC()
 
@@ -73,11 +76,10 @@ func (h *healthProbe) Check(ctx context.Context) (domain.HealthStatus, error) {
 }
 
 // componentHealthReporter adapts healthProbe into the richer
-// contracts.ComponentHealthReporter MEG-015 §09's Diagnostics Model
-// requires. It is stateful — unlike healthProbe.Check, which is a pure
-// point-in-time check — because ReportHealth must answer "when did this
-// component last succeed", which requires remembering the outcome of the
-// previous call.
+// contracts.ComponentHealthReporter the diagnostics model requires. It is
+// stateful — unlike healthProbe.Check, which is a pure point-in-time check —
+// because ReportHealth must answer "when did this component last succeed",
+// which requires remembering the outcome of the previous call.
 type componentHealthReporter struct {
 	probe     *healthProbe
 	component string

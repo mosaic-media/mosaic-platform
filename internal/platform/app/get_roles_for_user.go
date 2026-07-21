@@ -13,12 +13,10 @@ import (
 )
 
 // ActionPermissionRead is the policy action evaluated for GetRolesForUser,
-// GetGrantsForUser and GetEffectivePermissions (MEG-015 §09 —
-// Permissions).
+// GetGrantsForUser and GetEffectivePermissions.
 const ActionPermissionRead policy.Action = "permission.read"
 
-// GetRolesForUserQuery reads the roles granted to a user (MEG-015 §09 —
-// Permissions: "roles").
+// GetRolesForUserQuery reads the roles granted to a user.
 type GetRolesForUserQuery struct {
 	CallerSessionID domain.SessionID
 	TargetUserID    domain.UserID
@@ -40,7 +38,7 @@ func validateGetRolesForUserQuery(query GetRolesForUserQuery) error {
 	return nil
 }
 
-// GetRolesForUser implements the query boundary from MEG-015 §04.
+// GetRolesForUser implements the query boundary, per the command order.
 func (s *Service) GetRolesForUser(ctx context.Context, query GetRolesForUserQuery) (GetRolesForUserResult, error) {
 	if err := validateGetRolesForUserQuery(query); err != nil {
 		return GetRolesForUserResult{}, err

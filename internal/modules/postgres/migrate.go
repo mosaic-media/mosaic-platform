@@ -25,7 +25,7 @@ var migrationFiles embed.FS
 
 // migrationsTable tracks which migrations have been applied, with the
 // checksum of the exact SQL that was applied. It is the Platform's schema
-// version record (MEG-007 §10 — Schema Versioning).
+// version record.
 const migrationsTable = "platform_schema_migrations"
 
 // migration is one embedded, versioned schema change.
@@ -37,7 +37,7 @@ type migration struct {
 }
 
 // MigrationStatus summarises the schema state for diagnostics and startup
-// reporting (MEG-007 §10 — Observability).
+// reporting.
 type MigrationStatus struct {
 	// AppliedVersion is the highest migration version recorded as applied,
 	// or 0 for an empty database.
@@ -126,10 +126,9 @@ func parseMigrationName(filename string) (int, string, error) {
 
 // Migrate brings the database schema up to the version this binary embeds,
 // and — before applying anything — validates that whatever is already
-// applied is compatible with this binary. It is the startup gate required by
-// MEG-007 §10 ("Startup MUST validate storage versions before execution")
-// and MEG-015 §05 ("startup can detect missing, incompatible or partially
-// applied migrations").
+// applied is compatible with this binary. It is the migration gate: startup
+// validates storage versions before execution and detects missing,
+// incompatible or partially applied migrations.
 //
 // It fails fast, without applying anything, when it detects:
 //   - incompatible: an applied version whose checksum differs from this

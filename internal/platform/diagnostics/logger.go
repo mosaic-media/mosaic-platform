@@ -15,8 +15,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// redactedPlaceholder replaces any Field value not explicitly marked safe
-// (MEG-015 §09 — Local Logs: "must not include personal data or secrets").
+// redactedPlaceholder replaces any Field value not explicitly marked safe;
+// local logs must not include personal data or secrets.
 const redactedPlaceholder = "[REDACTED]"
 
 // Field is one structured field of a log entry. Its Value is written
@@ -25,12 +25,10 @@ const redactedPlaceholder = "[REDACTED]"
 // the entry is ever serialized. This fails closed the same way
 // domain.RedactionClass already documents for event payloads: a field a
 // caller forgot to classify is redacted, not leaked. This is the same rule
-// the Secret Broker enforces one layer down (MEG-015 §08 — "Application
-// services and Modules must not read secret files directly" /
-// "[secret] values must not be observable", MEG-005 §19): a resolved
-// secret.Value must never be passed to String — always Secret, if it must
-// be logged at all — so it is redacted here even if a caller mistakenly
-// tries to log it as plain text.
+// the Secret Broker enforces one layer down, where secrets stay
+// unobservable: a resolved secret.Value must never be passed to String —
+// always Secret, if it must be logged at all — so it is redacted here even
+// if a caller mistakenly tries to log it as plain text.
 type Field struct {
 	Key       string
 	Value     string
@@ -69,9 +67,9 @@ func (f Field) redactedValue() string {
 	return redactedPlaceholder
 }
 
-// entry is one JSON-Lines structured log record (MEG-015 §09 — Local
-// Logs: "write local .log files with structured fields... include
-// component and Module identifiers where available").
+// entry is one JSON-Lines structured log record: local .log files with
+// structured fields, including component and Module identifiers where
+// available.
 type entry struct {
 	Time      string            `json:"time"`
 	Level     string            `json:"level"`
@@ -119,8 +117,7 @@ func (l *Logger) Close() error {
 }
 
 // Log writes one structured entry. component and module identify the
-// origin (MEG-015 §09 — "include component and Module identifiers where
-// available"); module may be empty for Platform-originated entries. Every
+// origin; module may be empty for Platform-originated entries. Every
 // field's value is redacted unless explicitly built with String — Log
 // itself never decides what is safe, so a caller cannot bypass redaction
 // by choosing a different call site.
@@ -171,7 +168,7 @@ func (l *Logger) Error(component, message string, fields ...Field) {
 // domain.ComponentHealth snapshot: identifiers and state are always safe
 // (String); DegradedReason is free text a reporter attached and is logged
 // according to health.RedactionClass, exactly as a support bundle would
-// treat it (MEG-015 §09).
+// treat it.
 func ComponentHealthFields(health domain.ComponentHealth) []Field {
 	fields := []Field{
 		String("lifecycle", string(health.Lifecycle)),

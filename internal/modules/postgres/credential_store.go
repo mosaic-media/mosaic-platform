@@ -16,7 +16,7 @@ import (
 )
 
 // credentialStore is the PostgreSQL contracts.CredentialStore, covering the
-// local identity factors from MEG-015 §07 — password, passkey and recovery.
+// local identity factors — password, passkey and recovery.
 type credentialStore struct {
 	q queryer
 }
@@ -116,7 +116,7 @@ func (s *credentialStore) SaveRecoveryFactor(ctx context.Context, factor domain.
 
 // ConsumeRecoveryFactor marks a single unused recovery factor consumed and
 // returns it. It fails NotFound if the code does not exist or was already
-// consumed, so a recovery code can be spent at most once (MEG-009 §03).
+// consumed, so a recovery code can be spent at most once.
 func (s *credentialStore) ConsumeRecoveryFactor(ctx context.Context, userID domain.UserID, codeHash string) (domain.RecoveryFactor, error) {
 	now := time.Now().UTC()
 	row := s.q.QueryRow(ctx,

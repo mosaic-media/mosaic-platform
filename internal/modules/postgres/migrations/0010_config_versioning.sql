@@ -1,5 +1,5 @@
--- Migration 0010 — Configuration versioning and activation (MEG-015 §08).
--- Additive (expand strategy, MEG-005 §21): extends config_versions from
+-- Migration 0010 — Configuration versioning and activation.
+-- Additive (expand strategy): extends config_versions from
 -- migration 0004 with the activation state machine (Draft -> Validated ->
 -- Active -> Superseded, with Validated -> Rejected on failed validation).
 -- config_activations and config_validation_results (also from 0004) remain

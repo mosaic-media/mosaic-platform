@@ -10,8 +10,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// PermissionStore provides role and grant persistence, plus attribute lookup
-// (MEG-015 §03). The lookups back the policy engine's RBAC decisions; the
+// PermissionStore provides role and grant persistence, plus attribute lookup.
+// The lookups back the policy engine's RBAC decisions; the
 // writes are how an administrator gives a user authority — the first path by
 // which authority is assigned through the Platform rather than seeded out of
 // band.

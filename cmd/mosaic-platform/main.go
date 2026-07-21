@@ -3,8 +3,8 @@
 // Linking exception: see LICENSE-EXCEPTION.
 
 // Command mosaic-platform is the Platform process entry point. Its
-// responsibility is dependency bootstrap only (MEG-015 §02); it must stay
-// free of business logic.
+// responsibility is dependency bootstrap only; it must stay free of
+// business logic.
 package main
 
 import (
@@ -44,7 +44,7 @@ import (
 const postgresDSNEnv = "MOSAIC_POSTGRES_DSN"
 
 // healthAddrEnv names the environment variable carrying the address the
-// MEG-015 §10 Supervisor handoff HTTP surface listens on.
+// Supervisor handoff HTTP surface listens on.
 const healthAddrEnv = "MOSAIC_HEALTH_ADDR"
 
 const defaultHealthAddr = ":8080"
@@ -116,7 +116,7 @@ func run() error {
 	fmt.Printf("mosaic-platform: booting (environment=%s)\n", cfg.Environment)
 
 	// Register built-in modules the same way an external Module would be
-	// discovered (MEG-006). Postgres is the first, required storage module.
+	// discovered. Postgres is the first, required storage module.
 	moduleRegistry := builtin.NewRegistry()
 	moduleRegistry.Register(postgres.New())
 	for _, m := range moduleRegistry.Manifests() {
@@ -140,12 +140,11 @@ func run() error {
 
 	// Bootstrap phase, bounded: connect, then run migrations. Migrate fails
 	// fast on a missing, incompatible or partially applied schema, so this
-	// is the startup gate that refuses to run against a mismatched database
-	// (MEG-015 §05, MEG-007 §10 — "Migration failures MUST prevent Runtime
-	// startup"). Bracketing it with migrations.Begin/Complete is what makes
-	// MEG-015 §10's migration status endpoint reflect real state — Running
-	// while this is in flight, Complete or Failed once it returns — rather
-	// than a value invented for the endpoint alone.
+	// is the startup gate that refuses to run against a mismatched database:
+	// migration failures prevent Runtime startup. Bracketing it with
+	// migrations.Begin/Complete is what makes the migration status endpoint
+	// reflect real state — Running while this is in flight, Complete or Failed
+	// once it returns — rather than a value invented for the endpoint alone.
 	bootCtx, bootCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	pool, err := postgres.Connect(bootCtx, dsn)
 	if err != nil {
@@ -175,7 +174,7 @@ func run() error {
 		storageHealth.Component, storageHealth.State, storageHealth.Detail)
 
 	// Wire the in-process Event Bus and the outbox worker that drains
-	// committed outbox rows into it (MEG-015 §06).
+	// committed outbox rows into it.
 	bus := events.NewBus()
 	worker := events.NewWorker(set.Outbox, bus, "outbox-worker")
 
@@ -187,8 +186,8 @@ func run() error {
 	}
 	fmt.Printf("mosaic-platform: outbox worker drained %d event(s)\n", published)
 
-	// Aggregate real component health (MEG-015 §09 — Diagnostics Model),
-	// backing both the local structured log and the /readyz endpoint below.
+	// Aggregate real component health per the diagnostics model, backing
+	// both the local structured log and the /readyz endpoint below.
 	diagRegistry := diagnostics.NewRegistry()
 	diagRegistry.Register("postgres", set.HealthReporter)
 	diagRegistry.Register("event-bus", bus)
@@ -287,12 +286,11 @@ func run() error {
 	}
 
 	// From here on the process is a genuine long-running Supervisor
-	// candidate (MEG-015 §10 — Activation Sequence: "Start runtime
-	// components" -> "Readiness probe" -> "Activate candidate"), not a
-	// boot-and-exit scaffold: the outbox worker's background poll loop
-	// runs, and the Supervisor handoff HTTP surface serves readiness,
-	// liveness, metadata, migration and config activation status until a
-	// shutdown signal arrives.
+	// candidate — start runtime components, pass the readiness probe, be
+	// activated — not a boot-and-exit scaffold: the outbox worker's
+	// background poll loop runs, and the Supervisor handoff HTTP surface
+	// serves readiness, liveness, metadata, migration and config activation
+	// status until a shutdown signal arrives.
 	serveCtx, stopServe := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stopServe()
 
@@ -357,12 +355,10 @@ func run() error {
 	// Graceful shutdown: stop accepting new HTTP requests, then drain the
 	// outbox worker (stop its poll loop and perform one final synchronous
 	// RunOnce so any event that became deliverable between the last poll
-	// tick and Stop is checkpointed before the process exits — MEG-015
-	// §10's "outbox checkpointing"). Rollback, if the Supervisor decides to
-	// activate an earlier Generation instead of this one, means activating
-	// that other binary — this process must never and does not attempt to
-	// reverse any database mutation itself (MEG-015 §10 — Rollback
-	// Boundary).
+	// tick and Stop is checkpointed before the process exits). Rollback, if
+	// the Supervisor decides to activate an earlier Generation instead of
+	// this one, means activating that other binary — this process must never
+	// and does not attempt to reverse any database mutation itself.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 	_ = apiServer.Shutdown(shutdownCtx)

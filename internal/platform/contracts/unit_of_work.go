@@ -7,7 +7,7 @@ package contracts
 import "context"
 
 // UnitOfWork is the transaction boundary application services use to
-// coordinate writes across multiple stores (MEG-015 §03).
+// coordinate writes across multiple stores.
 type UnitOfWork interface {
 	WithinTx(ctx context.Context, fn func(ctx context.Context, tx Tx) error) error
 }

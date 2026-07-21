@@ -1,6 +1,6 @@
--- Migration 0004 — Configuration (MEG-015 §05, First Schema Areas: Configuration).
+-- Migration 0004 — Configuration.
 -- Tables: config versions, config activations, config validation results.
--- Activation and validation are separate from persistence (MEG-015 §08);
+-- Activation and validation are separate from persistence;
 -- their tables exist now, but the activation/validation flow lands later.
 
 CREATE TABLE IF NOT EXISTS config_versions (

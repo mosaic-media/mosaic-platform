@@ -11,7 +11,7 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 )
 
-// Engine is the first Platform Policy Decision Point (MEG-015 §07). It
+// Engine is the first Platform Policy Decision Point. It
 // resolves the subject's roles through PermissionStore and allows the
 // request if any granted role includes the requested Action as a
 // permission. Resource and PolicyContext are accepted and threaded
@@ -21,7 +21,7 @@ import (
 // not change its signature.
 //
 // Unresolvable subjects and subjects with no matching grant are denied,
-// matching MEG-009 §04's default-deny rule.
+// matching the default-deny rule.
 type Engine struct {
 	permissions contracts.PermissionStore
 }
@@ -31,6 +31,8 @@ func NewEngine(permissions contracts.PermissionStore) *Engine {
 	return &Engine{permissions: permissions}
 }
 
+// Authorize resolves the subject's roles and returns an allow Decision if any
+// granted role includes action as a permission; otherwise it denies.
 func (e *Engine) Authorize(ctx context.Context, subject Subject, action Action, _ Resource, _ PolicyContext) (Decision, error) {
 	if subject.UserID == "" {
 		return Decision{Allowed: false, Reason: "no subject"}, nil

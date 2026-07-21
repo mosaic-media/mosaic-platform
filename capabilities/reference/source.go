@@ -16,7 +16,7 @@ import (
 )
 
 // MetadataSource is the capability's own port to an external provider. The
-// Platform offers no HTTP contract and needs to: a capability compiles into
+// Platform offers no HTTP contract and needs none: a capability compiles into
 // the binary with trust established before the build (ADR 0007), so it owns
 // its provider integration outright. HTTPSource below is one implementation;
 // a test supplies another.

@@ -6,8 +6,8 @@
 // of the Platform storage contracts must pass. The suite is deliberately
 // adapter-agnostic — it imports only contracts and domain, never a concrete
 // adapter — so the same tests run against the in-memory fakes and against the
-// real PostgreSQL module, satisfying MEG-015 §11's rule that contract tests be
-// reusable across implementations.
+// real PostgreSQL module, keeping the contract tests reusable across
+// implementations.
 package contract
 
 import (
@@ -371,7 +371,7 @@ func RunCredentialStoreContract(t *testing.T, newDeps Factory) {
 }
 
 // RunConfigStoreContract verifies config version persistence, latest
-// selection and the MEG-015 §08 activation status bookkeeping.
+// selection and activation status bookkeeping.
 func RunConfigStoreContract(t *testing.T, newDeps Factory) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
@@ -596,7 +596,7 @@ func RunPermissionStoreContract(t *testing.T, newDeps Factory) {
 }
 
 // RunOutboxAtomicityContract is the core storage guarantee: a state write and
-// its outbox event commit together or not at all (MEG-015 §05), and a
+// its outbox event commit together or not at all in one transaction, and a
 // concurrent uniqueness conflict is reported as Conflict rather than a raw
 // driver error.
 func RunOutboxAtomicityContract(t *testing.T, newDeps Factory) {
@@ -705,8 +705,8 @@ func RunOutboxAtomicityContract(t *testing.T, newDeps Factory) {
 	})
 }
 
-// RunOutboxEnvelopeContract verifies the full event envelope (MEG-015 §06)
-// round-trips through storage.
+// RunOutboxEnvelopeContract verifies the full event envelope round-trips
+// through storage.
 func RunOutboxEnvelopeContract(t *testing.T, newDeps Factory) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
@@ -771,10 +771,9 @@ func RunOutboxEnvelopeContract(t *testing.T, newDeps Factory) {
 	})
 }
 
-// RunOutboxFailureContract verifies delivery failure bookkeeping (MEG-015
-// §06 — Failure Behaviour): attempts accumulate, a retry is scheduled, and an
-// event is dead-lettered (and dropped from the deliverable set) once retries
-// are exhausted.
+// RunOutboxFailureContract verifies delivery failure bookkeeping: attempts
+// accumulate, a retry is scheduled, and an event is dead-lettered (and dropped
+// from the deliverable set) once retries are exhausted.
 func RunOutboxFailureContract(t *testing.T, newDeps Factory) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
@@ -807,9 +806,9 @@ func RunOutboxFailureContract(t *testing.T, newDeps Factory) {
 		}
 
 		// Immediately after a failure the event is waiting out its retry
-		// backoff (MEG-015 §06 — Failure Behaviour) and must not be
-		// immediately redelivered — this is what stops the worker from
-		// hot-looping a retry before the backoff elapses. Exact bookkeeping
+		// backoff and must not be immediately redelivered — this is what
+		// stops the worker from hot-looping a retry before the backoff
+		// elapses. Exact bookkeeping
 		// field values (attempts, category, owning component, next retry
 		// time) are adapter-specific storage detail, not something this
 		// contract exposes a read path for; they are verified against the

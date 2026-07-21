@@ -10,9 +10,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/events"
 )
 
-// ShutdownResult reports what graceful shutdown actually did (MEG-015 §10
-// — Shutdown hook: "allows graceful worker drain and outbox
-// checkpointing").
+// ShutdownResult reports what graceful shutdown actually did — the graceful
+// worker drain and outbox checkpoint.
 type ShutdownResult struct {
 	// FinalDrainPublished is how many outbox events the final drain
 	// published before exit.
@@ -25,7 +24,7 @@ type ShutdownResult struct {
 // Shutdown stops worker's background poll loop (if running) and then
 // performs one final, synchronous drain, so any event that became
 // deliverable between the last poll tick and Stop is not left behind —
-// the outbox checkpoint MEG-015 §10 requires. Worker.Stop already blocks
+// the outbox checkpoint shutdown requires. Worker.Stop already blocks
 // until the poll goroutine has fully exited, so this final RunOnce never
 // races a concurrent poll. lifecycle is marked Stopping before the drain
 // and Stopped after, so Liveness reflects real shutdown progress

@@ -11,8 +11,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// rolesForUserField is the MEG-015 §09 Permissions query "roles". It
-// calls app.Service.GetRolesForUser only.
+// rolesForUserField is the Permissions query "roles". It calls
+// app.Service.GetRolesForUser only.
 func rolesForUserField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewList(roleType),
@@ -33,8 +33,8 @@ func rolesForUserField(svc *app.Service) *graphql.Field {
 	}
 }
 
-// grantsForUserField is the MEG-015 §09 Permissions query "grants". It
-// calls app.Service.GetGrantsForUser only.
+// grantsForUserField is the Permissions query "grants". It calls
+// app.Service.GetGrantsForUser only.
 func grantsForUserField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewList(grantType),
@@ -55,9 +55,8 @@ func grantsForUserField(svc *app.Service) *graphql.Field {
 	}
 }
 
-// effectivePermissionsField is the MEG-015 §09 Permissions query
-// "effective permission inspection". It calls
-// app.Service.GetEffectivePermissions only.
+// effectivePermissionsField is the Permissions query "effective permission
+// inspection". It calls app.Service.GetEffectivePermissions only.
 func effectivePermissionsField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewList(graphql.String),

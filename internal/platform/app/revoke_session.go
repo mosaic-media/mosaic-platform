@@ -12,13 +12,11 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
 )
 
-// ActionSessionRevoke is the policy action evaluated for RevokeSession,
-// matching the example action name in MEG-015 §07's Policy Model table.
+// ActionSessionRevoke is the policy action evaluated for RevokeSession.
 const ActionSessionRevoke policy.Action = "user.session.revoke"
 
-// RevokeSessionCommand revokes a session server-side. Per MEG-015 §07:
-// "remote sign-out should revoke server-side session records, not rely on
-// clients deleting tokens."
+// RevokeSessionCommand revokes a session server-side: remote sign-out revokes
+// server-side session records rather than relying on clients deleting tokens.
 type RevokeSessionCommand struct {
 	CallerSessionID domain.SessionID
 	TargetSessionID domain.SessionID
@@ -40,8 +38,7 @@ func validateRevokeSessionCommand(cmd RevokeSessionCommand) error {
 	return nil
 }
 
-// RevokeSession implements the command boundary from MEG-015 §04 for
-// server-side session revocation.
+// RevokeSession follows the command order for server-side session revocation.
 func (s *Service) RevokeSession(ctx context.Context, cmd RevokeSessionCommand) (RevokeSessionResult, error) {
 	// 1. validate command shape.
 	if err := validateRevokeSessionCommand(cmd); err != nil {

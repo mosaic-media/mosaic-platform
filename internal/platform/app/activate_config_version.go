@@ -17,8 +17,8 @@ import (
 // ActivateConfigVersion.
 const ActionConfigActivate policy.Action = "config.activate"
 
-// ActivateConfigVersionCommand runs the Activate step of the MEG-015 §08
-// activation state machine against a Validated version.
+// ActivateConfigVersionCommand runs the Activate step of the activation
+// state machine against a Validated version.
 type ActivateConfigVersionCommand struct {
 	CallerSessionID domain.SessionID
 	ConfigVersionID domain.ConfigVersionID
@@ -30,8 +30,8 @@ type ActivateConfigVersionCommand struct {
 // Validated and ReloadClass reports what escalation (restart, a new
 // Generation, or the recovery flow) it requires before it can take effect
 // — the Platform correctly classifies and flags the change here, but does
-// not perform that escalation itself yet (MEG-015 §10 — Supervisor
-// handoff is a later slice).
+// not perform that escalation itself yet (the Supervisor handoff is a
+// later slice).
 type ActivateConfigVersionResult struct {
 	Version     domain.ConfigVersion
 	Activated   bool
@@ -48,8 +48,8 @@ func validateActivateConfigVersionCommand(cmd ActivateConfigVersionCommand) erro
 	return nil
 }
 
-// ActivateConfigVersion implements the command boundary from MEG-015 §04
-// for the Activate step of the §08 activation state machine.
+// ActivateConfigVersion implements the command order for the Activate
+// step of the activation state machine.
 func (s *Service) ActivateConfigVersion(ctx context.Context, cmd ActivateConfigVersionCommand) (ActivateConfigVersionResult, error) {
 	// 1. validate command shape.
 	if err := validateActivateConfigVersionCommand(cmd); err != nil {

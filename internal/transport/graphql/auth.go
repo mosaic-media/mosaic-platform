@@ -28,10 +28,9 @@ var signOutPayloadType = graphql.NewObject(graphql.ObjectConfig{
 	},
 })
 
-// signInField is the MEG-015 §09 Auth mutation "local sign-in". The
-// resolver's entire body is a call into app.Service.AuthenticateLocalUser
-// — it never touches a store or a database connection directly (MEG-015
-// §09 — GraphQL Role).
+// signInField is the Auth mutation "local sign-in". The resolver's entire
+// body is a call into app.Service.AuthenticateLocalUser — it never touches
+// a store or a database connection directly.
 func signInField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: signInPayloadType,
@@ -54,9 +53,8 @@ func signInField(svc *app.Service) *graphql.Field {
 	}
 }
 
-// signOutField is the MEG-015 §09 Auth mutation "sign-out", implemented as
-// a server-side session revocation (MEG-015 §07): it calls
-// app.Service.RevokeSession only.
+// signOutField is the Auth mutation "sign-out", implemented as a
+// server-side session revocation: it calls app.Service.RevokeSession only.
 func signOutField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: signOutPayloadType,
@@ -80,8 +78,8 @@ func signOutField(svc *app.Service) *graphql.Field {
 // notImplementedField builds a field whose resolver always fails with an
 // Unavailable Platform error explaining why, rather than a value —
 // GraphQL's Auth surface names "session refresh" and "remote sign-in
-// challenge status" (MEG-015 §09) as required, but no application service
-// backs either yet: sessions.Manager has Issue/Validate/Revoke only (no
+// challenge status" as required, but no application service backs either
+// yet: sessions.Manager has Issue/Validate/Revoke only (no
 // refresh), and no device-pairing/challenge flow exists at all. Inventing
 // that behavior in a resolver would violate the hard rule that resolvers
 // only call application services — so the gap is flagged instead of
@@ -96,7 +94,7 @@ func notImplementedField(fieldType graphql.Output, args graphql.FieldConfigArgum
 	}
 }
 
-// sessionRefreshField stubs MEG-015 §09's "session refresh" — see
+// sessionRefreshField stubs the "session refresh" field — see
 // notImplementedField.
 func sessionRefreshField() *graphql.Field {
 	return notImplementedField(sessionType, graphql.FieldConfigArgument{
@@ -104,8 +102,8 @@ func sessionRefreshField() *graphql.Field {
 	}, "no application service exists yet to refresh a session's lifetime (sessions.Manager has Issue/Validate/Revoke only)")
 }
 
-// remoteSignInChallengeStatusField stubs MEG-015 §09's "remote sign-in
-// challenge status" — see notImplementedField.
+// remoteSignInChallengeStatusField stubs the "remote sign-in challenge
+// status" field — see notImplementedField.
 func remoteSignInChallengeStatusField() *graphql.Field {
 	return notImplementedField(graphql.String, graphql.FieldConfigArgument{
 		"challengeId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},

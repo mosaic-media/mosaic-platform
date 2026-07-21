@@ -10,10 +10,9 @@ import (
 )
 
 // PlatformVersion is a first-cut Platform build identifier. A real build
-// pipeline (MEG-005 §14 — Supervisor Model's Build Pipeline) would stamp
-// this from a release tag or commit; until that exists, it is a fixed
-// literal recorded here so Generation metadata has a real, if provisional,
-// value rather than one invented ad hoc at each call site.
+// pipeline would stamp this from a release tag or commit; until that exists,
+// it is a fixed literal recorded here so Generation metadata has a real, if
+// provisional, value rather than one invented ad hoc at each call site.
 const PlatformVersion = "v0.0.0-foundation"
 
 // ModuleMetadata is one built-in Module's identity, mirrored from
@@ -24,25 +23,22 @@ type ModuleMetadata struct {
 	Fulfills []string
 }
 
-// GenerationMetadata identifies this build for the Supervisor (MEG-015
-// §10 — Generation metadata: "Identifies Platform version, contract
-// version, built-in Modules and assets").
+// GenerationMetadata identifies this build for the Supervisor: Platform
+// version, contract version, built-in Modules and assets.
 type GenerationMetadata struct {
 	PlatformVersion string
 	ContractID      string
 	ContractVersion string
 	Modules         []ModuleMetadata
-	// Assets lists build/Shell assets bundled into this Generation
-	// (MIP-006 — Generation Composition Protocol: "Platform, Shell and
-	// admitted Modules, plus manifests, assets and signatures"). This
+	// Assets lists build/Shell assets bundled into this Generation. This
 	// repository has no build pipeline or Shell yet, so it is always
 	// empty — a documented gap, not a fabricated asset list.
 	Assets []string
 }
 
 // BuildGenerationMetadata assembles GenerationMetadata from the registered
-// built-in Modules (MEG-015 §03's ContractID/ContractVersion plus the
-// composition root's builtin.Registry).
+// built-in Modules, the contract ID/version and the composition root's
+// builtin.Registry.
 func BuildGenerationMetadata(modules *builtin.Registry) GenerationMetadata {
 	manifests := modules.Manifests()
 	moduleMetadata := make([]ModuleMetadata, len(manifests))

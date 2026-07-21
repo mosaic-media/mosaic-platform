@@ -6,8 +6,7 @@ package domain
 
 import "time"
 
-// UserStatus is an admin-managed account status (MEG-015 §09 — Users:
-// "admin-managed status").
+// UserStatus is an admin-managed account status.
 type UserStatus string
 
 const (

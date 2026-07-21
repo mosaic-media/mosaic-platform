@@ -39,6 +39,7 @@ func NewUUIDv7Generator() contracts.IDGenerator {
 	return uuidV7Generator{now: time.Now}
 }
 
+// NewID returns a new time-ordered UUIDv7 content identifier.
 func (g uuidV7Generator) NewID() domain.ID {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

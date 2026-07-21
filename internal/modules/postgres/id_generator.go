@@ -15,11 +15,10 @@ import (
 // uuidGenerator is the runtime contracts.IDGenerator. It emits random
 // version-4 UUID strings.
 //
-// As with the Clock, MEG-015 §03 attributes IDGenerator to the "Runtime
-// generator" rather than to PostgreSQL; it is bundled in the built-in module
-// so the composition root has a complete driven-port set. The contract
-// deliberately commits to no particular strategy (MEG-004 §04), so the UUID
-// choice lives entirely behind the port.
+// As with the Clock, IDGenerator is a runtime generator rather than a
+// PostgreSQL concern; it is bundled in the built-in module so the composition
+// root has a complete driven-port set. The contract deliberately commits to no
+// particular strategy, so the UUID choice lives entirely behind the port.
 type uuidGenerator struct{}
 
 // NewIDGenerator returns a UUIDv4-based IDGenerator.

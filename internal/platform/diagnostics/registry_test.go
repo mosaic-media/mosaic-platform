@@ -41,7 +41,7 @@ func TestRegistrySnapshotReturnsEveryComponentIndependently(t *testing.T) {
 		t.Fatalf("event-bus health = %q, want %q", byComponent["event-bus"].Health, domain.HealthDegraded)
 	}
 	// One degraded component must not be reduced to a single failed state
-	// for the whole system (MEG-015 §09 — Diagnostics Model).
+	// for the whole system.
 	if byComponent["postgres"].Health == byComponent["event-bus"].Health {
 		t.Fatal("expected postgres and event-bus to report independently different health")
 	}

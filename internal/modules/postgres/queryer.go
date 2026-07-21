@@ -16,8 +16,8 @@ import (
 // query paths) and pgx.Tx (transaction-scoped writes reached through a
 // UnitOfWork) satisfy it, so a single store implementation serves both
 // without knowing which handle it holds. This is how repository methods stay
-// "written against transaction-scoped handles" (MEG-015 §05) while also
-// backing the direct read path.
+// written against transaction-scoped handles while also backing the direct
+// read path.
 type queryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row

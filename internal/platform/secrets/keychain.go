@@ -24,7 +24,7 @@ const keychainService = "mosaic-platform"
 // whether any real secret has been stored yet.
 const keychainAvailabilityProbeName = "mosaic-platform-availability-probe"
 
-// OSKeychainStore is the OS keychain SecretStore MEG-015 §08 prefers:
+// OSKeychainStore is the OS keychain SecretStore the Broker prefers:
 // macOS Keychain, Windows Credential Manager, or the Linux Secret Service
 // (GNOME Keyring/KDE Wallet) via go-keyring — pure Go, no cgo. Entries are
 // stored as a small JSON envelope so Version/RotatedAt survive the round
@@ -41,13 +41,14 @@ func NewOSKeychainStore() *OSKeychainStore { return &OSKeychainStore{} }
 // works: keyring.ErrNotFound is a normal "no such entry" answer from a
 // working backend. Any other error (no Secret Service running, no
 // keychain daemon unlocked, ...) means the backend could not be reached at
-// all — exactly the condition MEG-015 §08 says should fall back to the
-// encrypted local vault.
+// all — exactly the condition that should fall back to the encrypted local
+// vault.
 func (k *OSKeychainStore) Available(_ context.Context) bool {
 	_, err := keyring.Get(keychainService, keychainAvailabilityProbeName)
 	return err == nil || errors.Is(err, keyring.ErrNotFound)
 }
 
+// Get reads and decodes the entry stored under name in the OS keychain.
 func (k *OSKeychainStore) Get(_ context.Context, name string) (Entry, error) {
 	raw, err := keyring.Get(keychainService, name)
 	if err != nil {
@@ -63,6 +64,7 @@ func (k *OSKeychainStore) Get(_ context.Context, name string) (Entry, error) {
 	return entry, nil
 }
 
+// Set encodes entry and stores it under name in the OS keychain.
 func (k *OSKeychainStore) Set(_ context.Context, name string, entry Entry) error {
 	raw, err := json.Marshal(entry)
 	if err != nil {

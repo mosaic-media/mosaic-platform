@@ -16,7 +16,7 @@ import (
 const ActionConfigDraft policy.Action = "config.draft"
 
 // DraftConfigVersionCommand saves a new, unvalidated configuration
-// candidate (MEG-015 §08). The Platform exposes this as a callable service
+// candidate. The Platform exposes this as a callable service
 // so GraphQL or recovery tooling can drive it later; there is no admin UI
 // yet.
 type DraftConfigVersionCommand struct {
@@ -40,8 +40,8 @@ func validateDraftConfigVersionCommand(cmd DraftConfigVersionCommand) error {
 	return nil
 }
 
-// DraftConfigVersion implements the command boundary from MEG-015 §04 for
-// the Draft step of the §08 activation state machine.
+// DraftConfigVersion implements the command order for
+// the Draft step of the activation state machine.
 func (s *Service) DraftConfigVersion(ctx context.Context, cmd DraftConfigVersionCommand) (DraftConfigVersionResult, error) {
 	// 1. validate command shape.
 	if err := validateDraftConfigVersionCommand(cmd); err != nil {

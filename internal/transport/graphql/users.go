@@ -11,7 +11,7 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// usersField is the MEG-015 §09 Users query "user list". It calls
+// usersField is the Users list query. It calls
 // app.Service.ListUsers only.
 func usersField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
@@ -31,7 +31,7 @@ func usersField(svc *app.Service) *graphql.Field {
 	}
 }
 
-// userField is the MEG-015 §09 Users query "user detail". It calls
+// userField is the Users detail query. It calls
 // app.Service.GetUserByID only.
 func userField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
@@ -53,8 +53,8 @@ func userField(svc *app.Service) *graphql.Field {
 	}
 }
 
-// setUserStatusField is the MEG-015 §09 Users mutation "admin-managed
-// status". It calls app.Service.SetUserStatus only.
+// setUserStatusField is the admin-managed user-status mutation. It
+// calls app.Service.SetUserStatus only.
 func setUserStatusField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: userType,

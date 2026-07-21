@@ -16,8 +16,7 @@ import (
 const ActionUserCreate policy.Action = "user.create"
 
 // CreateLocalUserCommand provisions a local Platform user account with a
-// password credential (MEG-015 §07 — Local Identity Scope). It is an
-// administrative operation (MEG-009 §04 — Administrative Operations):
+// password credential. It is an administrative operation:
 // CallerSessionID must belong to an already-authenticated, authorized
 // caller, not the new user being created.
 type CreateLocalUserCommand struct {
@@ -50,7 +49,7 @@ func validateCreateLocalUserCommand(cmd CreateLocalUserCommand) error {
 	return nil
 }
 
-// CreateLocalUser implements the command boundary from MEG-015 §04:
+// CreateLocalUser implements the command order:
 // validate shape, authenticate, authorize, open a UnitOfWork, load state,
 // apply the domain rule (username uniqueness), persist the new user and
 // its outbox event in the same transaction, then return a Platform result.

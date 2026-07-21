@@ -82,8 +82,8 @@ func getJSON(t *testing.T, url string, out any) *http.Response {
 	return resp
 }
 
-// TestHandoffEndpointsAgainstARunningInstance is the MEG-015 §11/§12
-// Supervisor gate proven directly: every required endpoint is exercised
+// TestHandoffEndpointsAgainstARunningInstance is the Supervisor gate
+// proven directly: every required endpoint is exercised
 // over real HTTP against a real running httptest.Server, not called as a
 // bare Go function.
 func TestHandoffEndpointsAgainstARunningInstance(t *testing.T) {

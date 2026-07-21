@@ -19,9 +19,9 @@ import (
 // direct read access to SessionStore, UserStore and CredentialStore for
 // authentication and query paths, and a UnitOfWork for the transactional
 // write path — the same contracts, reached through the shape appropriate
-// to each operation (MEG-015 §04). It is the enforcement point for policy
+// to each operation. It is the enforcement point for policy
 // decisions: the policy.PolicyDecisionPoint only decides; Service is what
-// actually refuses to mutate state on a deny (MEG-015 §07).
+// actually refuses to mutate state on a deny.
 type Service struct {
 	uow              contracts.UnitOfWork
 	sessionStore     contracts.SessionStore
@@ -57,7 +57,7 @@ type Deps struct {
 	// Config and Permissions are direct (non-transactional) read handles, like
 	// Sessions/Users/Credentials — used by read-only queries
 	// (GetActiveConfigVersion, GetRolesForUser, …) that must not open a
-	// UnitOfWork (MEG-015 §04).
+	// UnitOfWork.
 	Config           contracts.ConfigStore
 	Permissions      contracts.PermissionStore
 	Nodes            contracts.NodeStore
@@ -96,9 +96,9 @@ func NewService(d Deps) *Service {
 }
 
 // authenticate resolves the caller identity behind sessionID. It is step 2
-// of the command boundary (MEG-015 §04) and the equivalent gate for
+// of the command boundary and the equivalent gate for
 // queries: it runs before any policy or state check, and failure stops
-// processing immediately (MEG-009 §03 — Authentication).
+// processing immediately.
 func (s *Service) authenticate(ctx context.Context, sessionID domain.SessionID) (domain.UserID, error) {
 	session, err := s.sessionManager.Validate(ctx, s.sessionStore, sessionID)
 	if err != nil {
@@ -118,8 +118,8 @@ func (s *Service) authenticateCaller(ctx context.Context, caller v1.Caller) (dom
 // authorize resolves step 3 of the command boundary (and the equivalent
 // query gate): it asks the PolicyDecisionPoint whether subject may perform
 // action on resource, translates a denial into a PermissionDenied contract
-// error, and publishes an audit event for the denial (MEG-015 §07 — Audit
-// Events). This is the enforcement point the deny-cannot-mutate-state
+// error, and publishes an audit event for the denial. This is the
+// enforcement point the deny-cannot-mutate-state
 // guarantee depends on: every command and query calls this before opening
 // a UnitOfWork or reading state.
 func (s *Service) authorize(ctx context.Context, subject policy.Subject, action policy.Action, resource policy.Resource, policyContext policy.PolicyContext) error {
@@ -134,12 +134,12 @@ func (s *Service) authorize(ctx context.Context, subject policy.Subject, action 
 	return nil
 }
 
-// newEvent builds an Event envelope (MEG-015 §06) for eventType with the
+// newEvent builds an Event envelope for eventType with the
 // given payload and actor, stamping a fresh id and both occurrence and record
 // timestamps from the Service clock. In synchronous command handling
 // OccurredAt and RecordedAt coincide. Audit events carry identifying data
 // (usernames, session ids), so they default to RedactionSensitive — redacted
-// from support bundles (MEG-015 §07/§09).
+// from support bundles.
 func (s *Service) newEvent(eventType string, payload []byte, actor string) domain.Event {
 	now := s.clock.Now()
 	return domain.Event{
@@ -154,7 +154,7 @@ func (s *Service) newEvent(eventType string, payload []byte, actor string) domai
 }
 
 // publishAuditEvent publishes an audit event through the runtime event
-// backbone (MEG-015 §07). Publication is best-effort: a delivery failure
+// backbone. Publication is best-effort: a delivery failure
 // must never mask the authorization or authentication outcome that
 // triggered it, so the error is intentionally discarded.
 func (s *Service) publishAuditEvent(ctx context.Context, eventType string, payload []byte, actor string) {

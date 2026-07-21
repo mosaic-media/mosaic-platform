@@ -15,8 +15,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// TestOutboxStateAtomicOnMidTransactionFailure is the MEG-015 §12 Outbox exit
-// criterion — "Command persists state and event atomically" — proven the way
+// TestOutboxStateAtomicOnMidTransactionFailure is the Outbox exit criterion —
+// "Command persists state and event atomically" — proven the way
 // that actually demonstrates atomicity: a failure is injected mid-transaction,
 // AFTER both the domain state write and the outbox append but BEFORE commit,
 // and neither row is allowed to persist.
@@ -75,7 +75,7 @@ func TestOutboxStateAtomicOnMidTransactionFailure(t *testing.T) {
 	}
 }
 
-// TestOutboxRecordedAtPersistsFullEnvelope confirms the §06 envelope columns
+// TestOutboxRecordedAtPersistsFullEnvelope confirms the envelope columns
 // are written to and read from the real event_outbox table, including the
 // failure-bookkeeping columns being present with their defaults.
 func TestOutboxRecordedAtPersistsFullEnvelope(t *testing.T) {

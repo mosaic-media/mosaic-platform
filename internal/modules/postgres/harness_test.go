@@ -17,8 +17,8 @@ import (
 )
 
 // This harness gives the Postgres adapter a REAL PostgreSQL instance to run
-// against, satisfying MEG-015 §11's requirement that contract tests execute
-// against real PostgreSQL (not a fake).
+// against, satisfying the requirement that contract tests execute against
+// real PostgreSQL (not a fake).
 //
 // Two ways to provide the database:
 //   - Set MOSAIC_TEST_POSTGRES_DSN to point at an existing PostgreSQL (the

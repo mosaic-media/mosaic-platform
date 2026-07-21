@@ -36,8 +36,8 @@ func validateGetUserByIDQuery(query GetUserByIDQuery) error {
 	return nil
 }
 
-// GetUserByID implements the query boundary from MEG-015 §04: queries use
-// a direct read contract rather than a UnitOfWork, but must still
+// GetUserByID implements the query boundary, per the command order: queries
+// use a direct read contract rather than a UnitOfWork, but must still
 // authenticate and pass through policy before reading state.
 func (s *Service) GetUserByID(ctx context.Context, query GetUserByIDQuery) (GetUserByIDResult, error) {
 	// 1. validate query shape.

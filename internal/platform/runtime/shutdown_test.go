@@ -15,8 +15,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/runtime"
 )
 
-// TestShutdownDrainsInFlightOutboxEventBeforeReturning is the MEG-015 §12
-// Supervisor exit criterion, proven by simulation rather than by merely
+// TestShutdownDrainsInFlightOutboxEventBeforeReturning is the Supervisor exit
+// criterion, proven by simulation rather than by merely
 // asserting the hook exists: the worker's background poll loop is given a
 // one-hour interval, so its own ticker cannot possibly fire during this
 // test. An event is appended while the worker is "running" (in-flight

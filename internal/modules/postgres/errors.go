@@ -14,15 +14,14 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 )
 
-// mapError translates a pgx/PostgreSQL error into a Platform contract error
-// (MEG-015 §03, §05 — Repository Implementation). It is the adapter
-// boundary's error gate: every value a store method returns to application
-// services passes through here, so a raw *pgconn.PgError, SQLSTATE code or
-// pgx sentinel never leaks past the module. It always returns a
-// *contracts.Error (or nil), never a driver error.
+// mapError translates a pgx/PostgreSQL error into a Platform contract error.
+// It is the adapter boundary's error gate: every value a store method returns
+// to application services passes through here, so a raw *pgconn.PgError,
+// SQLSTATE code or pgx sentinel never leaks past the module. It always returns
+// a *contracts.Error (or nil), never a driver error.
 //
-// message is a caller-supplied description of the operation that failed
-// (MEG-001 §08 — Add Context); it never contains SQL or driver detail.
+// message is a caller-supplied description of the operation that failed; it
+// never contains SQL or driver detail.
 func mapError(message string, err error) error {
 	if err == nil {
 		return nil

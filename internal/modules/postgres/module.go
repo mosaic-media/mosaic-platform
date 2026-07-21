@@ -21,8 +21,8 @@ const (
 )
 
 // Module is the built-in PostgreSQL module. It is the mandatory first
-// storage adapter (MEG-015 §05), compiled in and required, but presented
-// through the same manifest shape an external Module would use.
+// storage adapter, compiled in and required, but presented through the same
+// manifest shape an external Module would use.
 type Module struct{}
 
 // New returns the built-in PostgreSQL module.
@@ -31,10 +31,10 @@ func New() Module {
 }
 
 // Manifest declares the Platform contracts this module fulfills. UnitOfWork
-// through HealthProbe are the set named in MEG-015 §12's PostgreSQL row;
-// CredentialStore is included because the Identity slice added it to the
-// contract set (and to contracts.Tx) after MEG-015 §03's original table was
-// written, and this module genuinely fulfills it.
+// through HealthProbe are the module's original contract set; CredentialStore
+// is included because the Identity slice added it to the contract set (and to
+// contracts.Tx) after that set was written, and this module genuinely fulfills
+// it.
 func (Module) Manifest() builtin.Manifest {
 	return builtin.Manifest{
 		ID:      ModuleID,
@@ -90,8 +90,8 @@ type ContractSet struct {
 }
 
 // Open connects to PostgreSQL, runs migrations (failing fast on a missing,
-// incompatible or partially applied schema — MEG-015 §05), and returns the
-// wired contract set. On any failure it closes the pool it opened and
+// incompatible or partially applied schema), and returns the wired contract
+// set. On any failure it closes the pool it opened and
 // returns a Platform error, so a caller never receives a half-initialised
 // module.
 func (Module) Open(ctx context.Context, dsn string) (*ContractSet, error) {
@@ -117,8 +117,8 @@ func (Module) Bind(pool *pgxpool.Pool) *ContractSet {
 
 func newContractSet(pool *pgxpool.Pool) *ContractSet {
 	// The UnitOfWork is reached through the StorageAdapter port rather than
-	// constructed directly, so storage is a swappable port (MAD-001,
-	// MEG-015 §03) even though ContractSet's shape and main.go are unchanged.
+	// constructed directly, so storage is a swappable port even though
+	// ContractSet's shape and main.go are unchanged.
 	storage := NewStorageAdapter(pool)
 	return &ContractSet{
 		Pool:           pool,

@@ -17,9 +17,8 @@ import (
 const ActionSessionCreate policy.Action = "session.create"
 
 // AuthenticateLocalUserCommand signs a local user in with a password
-// credential and issues a new session (MEG-015 §07 — Local Identity
-// Scope). Remote identity providers (Apple, Google, ...) are explicitly
-// out of scope for the Platform foundation.
+// credential and issues a new session. Remote identity providers (Apple,
+// Google, ...) are explicitly out of scope for the Platform foundation.
 type AuthenticateLocalUserCommand struct {
 	Username string
 	Password string
@@ -51,7 +50,7 @@ func validateAuthenticateLocalUserCommand(cmd AuthenticateLocalUserCommand) erro
 // it is what establishes the identity the remaining steps authorize and
 // act on. Username lookup and credential mismatches both fail identically
 // (Unauthenticated, "invalid credentials") so a caller cannot use this
-// command to discover which usernames exist (MEG-009 §03).
+// command to discover which usernames exist.
 func (s *Service) AuthenticateLocalUser(ctx context.Context, cmd AuthenticateLocalUserCommand) (AuthenticateLocalUserResult, error) {
 	// 1. validate command shape.
 	if err := validateAuthenticateLocalUserCommand(cmd); err != nil {

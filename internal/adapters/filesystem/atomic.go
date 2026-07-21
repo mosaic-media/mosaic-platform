@@ -20,8 +20,7 @@ func Exists(path string) bool {
 // the low-level utility internal/platform/secrets' encrypted local vault
 // uses to read its own ciphertext file. Application services and Modules
 // must never call it (or any other direct file API) to read credential
-// material themselves; they go through the Secret Broker instead
-// (MEG-015 §08).
+// material themselves; they go through the Secret Broker instead.
 func ReadFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }

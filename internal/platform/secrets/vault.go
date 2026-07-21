@@ -14,12 +14,12 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 )
 
-// LocalVault is the encrypted local vault fallback MEG-015 §08 requires
-// when the OS keychain is unavailable: a single file holding every secret
-// entry, encrypted with a key derived from a recovery key kept separate
-// from the vault file itself. Losing both the vault file and the recovery
-// key intentionally makes its contents unrecoverable rather than weakening
-// protection with a recovery backdoor (MEG-015 §08 / MEG-005 §19).
+// LocalVault is the encrypted local vault fallback used when the OS keychain
+// is unavailable: a single file holding every secret entry, encrypted with a
+// key derived from a recovery key kept separate from the vault file itself.
+// Losing both the vault file and the recovery key intentionally makes its
+// contents unrecoverable rather than weakening protection with a recovery
+// backdoor.
 type LocalVault struct {
 	path string
 	key  [32]byte
@@ -40,6 +40,7 @@ func NewLocalVault(path string, recoveryKey []byte) *LocalVault {
 // surfaces as an error from Get/Set, not as unavailability up front.
 func (v *LocalVault) Available(_ context.Context) bool { return true }
 
+// Get returns the entry stored under name, or NotFound if none exists.
 func (v *LocalVault) Get(_ context.Context, name string) (Entry, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -55,6 +56,7 @@ func (v *LocalVault) Get(_ context.Context, name string) (Entry, error) {
 	return entry, nil
 }
 
+// Set stores entry under name, replacing any existing value.
 func (v *LocalVault) Set(_ context.Context, name string, entry Entry) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()

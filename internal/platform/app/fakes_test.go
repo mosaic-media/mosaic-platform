@@ -21,7 +21,7 @@ import (
 )
 
 // trace records the order in which contract and policy boundary calls
-// occur, so tests can assert the MEG-015 §04 command/query order actually
+// occur, so tests can assert the command/query order actually
 // happened rather than merely that the final result looks right.
 type trace struct {
 	mu    sync.Mutex
@@ -69,9 +69,9 @@ type fakeDB struct {
 	configs   map[domain.ConfigVersionID]domain.ConfigVersion
 	outbox    []domain.OutboxEvent
 	// roles is never written by any Service command in this slice — it is
-	// a fixture the tests seed directly, standing in for the "admin-
-	// controlled permission assignment" MEG-015 §07 lists as in scope but
-	// this slice does not build a command for.
+	// a fixture the tests seed directly, standing in for the admin-
+	// controlled permission assignment this slice does not build a command
+	// for.
 	roles map[domain.UserID][]domain.Role
 	// rolesByID is the role catalogue CreateRole writes and GrantRole reads.
 	rolesByID map[domain.RoleID]domain.Role
@@ -239,7 +239,7 @@ func (db *fakeDB) restore(snap fakeDBSnapshot) {
 
 // fakeUserStore implements contracts.UserStore. It deliberately does not
 // enforce username uniqueness itself — that is the application service's
-// domain rule to enforce (MEG-015 §04 step 6), not the store's.
+// domain rule to enforce, not the store's.
 type fakeUserStore struct {
 	db    *fakeDB
 	trace *trace
@@ -337,8 +337,7 @@ func (s *fakeSessionStore) Revoke(_ context.Context, id domain.SessionID) error 
 
 // fakeCredentialStore implements contracts.CredentialStore. Only the
 // password methods this slice's commands use are exercised by tests;
-// passkey and recovery methods exist to satisfy the interface shape
-// (MEG-015 §07 lists them as "modeled," not exercised, this slice).
+// passkey and recovery methods exist to satisfy the interface shape.
 type fakeCredentialStore struct {
 	db    *fakeDB
 	trace *trace
@@ -673,7 +672,7 @@ func (g *fakeIDGenerator) NewID() domain.ID {
 
 // fakePasswordVerifier implements domain.PasswordVerifier with a
 // reversible, deliberately insecure stand-in. Real hashing (Argon2id)
-// belongs to a future crypto adapter (MEG-015 §07); this exists purely
+// belongs to a future crypto adapter; this exists purely
 // to exercise the interface boundary in tests.
 type fakePasswordVerifier struct{}
 

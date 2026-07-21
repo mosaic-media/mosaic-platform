@@ -12,8 +12,7 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/policy"
 )
 
-// GetGrantsForUserQuery reads the role grants bound to a user (MEG-015 §09
-// — Permissions: "grants").
+// GetGrantsForUserQuery reads the role grants bound to a user.
 type GetGrantsForUserQuery struct {
 	CallerSessionID domain.SessionID
 	TargetUserID    domain.UserID
@@ -35,7 +34,7 @@ func validateGetGrantsForUserQuery(query GetGrantsForUserQuery) error {
 	return nil
 }
 
-// GetGrantsForUser implements the query boundary from MEG-015 §04.
+// GetGrantsForUser implements the query boundary, per the command order.
 func (s *Service) GetGrantsForUser(ctx context.Context, query GetGrantsForUserQuery) (GetGrantsForUserResult, error) {
 	if err := validateGetGrantsForUserQuery(query); err != nil {
 		return GetGrantsForUserResult{}, err

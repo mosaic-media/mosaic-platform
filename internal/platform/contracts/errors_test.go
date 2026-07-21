@@ -37,7 +37,7 @@ func TestErrorCategoriesAreDistinct(t *testing.T) {
 
 func TestErrorCategoryValuesAreStable(t *testing.T) {
 	// Category string values are part of the contract's compatibility
-	// surface (MEG-015 §03); a changed value here is a breaking change.
+	// surface; a changed value here is a breaking change.
 	tests := []struct {
 		name     string
 		category contracts.ErrorCategory

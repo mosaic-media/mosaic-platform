@@ -1,6 +1,6 @@
--- Migration 0002 — Sessions (MEG-015 §05, First Schema Areas: Sessions).
+-- Migration 0002 — Sessions.
 -- Tables: sessions, remote sign-in challenges, revoked sessions.
--- Columns of `sessions` match MEG-015 §07's session table exactly.
+-- Columns of `sessions` match the session model exactly.
 
 CREATE TABLE IF NOT EXISTS sessions (
     id            text        PRIMARY KEY,
@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);
 
--- Remote sign-in (TV / shared-screen) challenge records, MEG-015 §07 and
--- MEG-009 §03 — Remote Device Sign-In. Table only this slice; the pairing
+-- Remote sign-in (TV / shared-screen) challenge records — Remote Device
+-- Sign-In. Table only this slice; the pairing
 -- flow lands later.
 CREATE TABLE IF NOT EXISTS remote_sign_in_challenges (
     id               text        PRIMARY KEY,
@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS remote_sign_in_challenges (
 
 -- Revocation audit log. `sessions.revoked_at` remains the authoritative
 -- signal for Session.Revoked(); this table records the revocation event so
--- remote sign-out is observable (MEG-015 §07 — "revoke server-side session
--- records, not rely on clients deleting tokens").
+-- remote sign-out is observable (revoke server-side session records, not rely
+-- on clients deleting tokens).
 CREATE TABLE IF NOT EXISTS revoked_sessions (
     session_id text        PRIMARY KEY REFERENCES sessions (id) ON DELETE CASCADE,
     revoked_at timestamptz NOT NULL,

@@ -11,8 +11,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// draftConfigVersionField is the MEG-015 §09 Configuration mutation "config
-// draft". It calls app.Service.DraftConfigVersion only.
+// draftConfigVersionField is the Configuration mutation "config draft". It
+// calls app.Service.DraftConfigVersion only.
 func draftConfigVersionField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: configVersionType,
@@ -33,8 +33,8 @@ func draftConfigVersionField(svc *app.Service) *graphql.Field {
 	}
 }
 
-// validateConfigVersionField is the MEG-015 §09 Configuration mutation
-// "config validation". It calls app.Service.ValidateConfigVersion only.
+// validateConfigVersionField is the Configuration mutation "config
+// validation". It calls app.Service.ValidateConfigVersion only.
 func validateConfigVersionField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: configVersionType,
@@ -55,11 +55,10 @@ func validateConfigVersionField(svc *app.Service) *graphql.Field {
 	}
 }
 
-// activateConfigVersionField is the MEG-015 §09 Configuration mutation
-// "config activation". It calls app.Service.ActivateConfigVersion only.
-// The payload reports Activated/ReloadClass explicitly, since a
-// non-Hot-classed change is correctly deferred rather than applied
-// (MEG-015 §08).
+// activateConfigVersionField is the Configuration mutation "config
+// activation". It calls app.Service.ActivateConfigVersion only. The
+// payload reports Activated/ReloadClass explicitly, since a non-Hot-classed
+// change is correctly deferred rather than applied.
 func activateConfigVersionField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: activateConfigVersionPayloadType,
@@ -84,8 +83,8 @@ func activateConfigVersionField(svc *app.Service) *graphql.Field {
 	}
 }
 
-// activeConfigVersionField is the MEG-015 §09 Configuration query "active
-// version". It calls app.Service.GetActiveConfigVersion only.
+// activeConfigVersionField is the Configuration query "active version". It
+// calls app.Service.GetActiveConfigVersion only.
 func activeConfigVersionField(svc *app.Service) *graphql.Field {
 	return &graphql.Field{
 		Type: configVersionType,

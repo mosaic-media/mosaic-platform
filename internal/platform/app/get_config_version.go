@@ -13,8 +13,7 @@ import (
 )
 
 // GetConfigVersionQuery reads a single configuration version by ID, so a
-// caller can check the outcome of a prior draft/validate/activate command
-// (MEG-015 §09 — Configuration: "config draft, validation, activation").
+// caller can check the outcome of a prior draft/validate/activate command.
 type GetConfigVersionQuery struct {
 	CallerSessionID domain.SessionID
 	ConfigVersionID domain.ConfigVersionID
@@ -36,7 +35,7 @@ func validateGetConfigVersionQuery(query GetConfigVersionQuery) error {
 	return nil
 }
 
-// GetConfigVersion implements the query boundary from MEG-015 §04.
+// GetConfigVersion implements the query boundary, per the command order.
 func (s *Service) GetConfigVersion(ctx context.Context, query GetConfigVersionQuery) (GetConfigVersionResult, error) {
 	if err := validateGetConfigVersionQuery(query); err != nil {
 		return GetConfigVersionResult{}, err

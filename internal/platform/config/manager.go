@@ -13,7 +13,7 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/secrets"
 )
 
-// Manager runs the MEG-015 §08 configuration activation state machine
+// Manager runs the configuration activation state machine
 // (Draft -> Validated -> Active -> Superseded, with Validated -> Rejected
 // on failed validation) against whichever ConfigStore a caller supplies —
 // mirroring sessions.Manager, so application services can use it against
@@ -49,8 +49,8 @@ func (m *Manager) Draft(ctx context.Context, store contracts.ConfigStore, payloa
 
 // Validate checks a Draft version's payload against the schema — every
 // field registered, and every Secret field holding a well-formed secret://
-// reference rather than a raw value (MEG-015 §08 — Secret References) —
-// and moves it to Validated or Rejected. Both outcomes are a successful
+// reference rather than a raw value — and moves it to Validated or Rejected.
+// Both outcomes are a successful
 // call, not a Platform error — rejection is a normal, informative result
 // of the validate transition, not a failure to validate.
 func (m *Manager) Validate(ctx context.Context, store contracts.ConfigStore, id domain.ConfigVersionID) (domain.ConfigVersion, error) {

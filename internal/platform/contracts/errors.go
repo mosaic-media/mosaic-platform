@@ -11,8 +11,7 @@ import (
 
 // ErrorCategory is a stable Platform failure category. Every contract
 // method that can fail reports one of these categories so application
-// services and transports never need to inspect adapter-specific errors
-// (MEG-015 §03).
+// services and transports never need to inspect adapter-specific errors.
 type ErrorCategory string
 
 const (
@@ -34,7 +33,7 @@ const (
 
 // Error is the Platform contract error type. Adapters may retain
 // driver-specific errors internally, but application services and
-// transports must only ever see Error values (MEG-015 §03).
+// transports must only ever see Error values.
 type Error struct {
 	Category ErrorCategory
 	Message  string
@@ -47,7 +46,7 @@ func NewError(category ErrorCategory, message string) *Error {
 }
 
 // WrapError constructs a categorized Platform error that wraps err. Wrapped
-// errors remain discoverable through errors.Is and errors.As (MEG-001 §08).
+// errors remain discoverable through errors.Is and errors.As.
 func WrapError(category ErrorCategory, message string, err error) *Error {
 	return &Error{Category: category, Message: message, Err: err}
 }

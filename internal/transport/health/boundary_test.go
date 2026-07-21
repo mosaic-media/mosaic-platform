@@ -16,7 +16,7 @@ import (
 
 // forbiddenImportPrefixes mirror internal/transport/graphql's own boundary
 // check: no transport may import the concrete Postgres module or a raw SQL
-// driver (MEG-015 §09's GraphQL Role generalizes to every transport).
+// driver — the same rule, generalized to every transport.
 var forbiddenImportPrefixes = []string{
 	"github.com/mosaic-media/mosaic-platform/internal/modules/postgres",
 	"github.com/jackc/pgx",
@@ -50,7 +50,7 @@ func TestHandoffDoesNotImportPostgresOrRawSQL(t *testing.T) {
 			importPath := strings.Trim(imp.Path.Value, `"`)
 			for _, forbidden := range forbiddenImportPrefixes {
 				if strings.HasPrefix(importPath, forbidden) {
-					t.Errorf("%s: imports %q — the Supervisor handoff transport must call internal/platform/runtime only, never internal/modules/postgres or a raw SQL driver (MEG-015 §09/§10)", entry.Name(), importPath)
+					t.Errorf("%s: imports %q — the Supervisor handoff transport must call internal/platform/runtime only, never internal/modules/postgres or a raw SQL driver", entry.Name(), importPath)
 				}
 			}
 		}

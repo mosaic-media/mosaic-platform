@@ -6,8 +6,7 @@ package domain
 
 import "time"
 
-// ConfigStatus is a ConfigVersion's position in the MEG-015 §08 activation
-// state machine.
+// ConfigStatus is a ConfigVersion's position in the activation state machine.
 type ConfigStatus string
 
 const (
@@ -28,7 +27,7 @@ const (
 )
 
 // ConfigVersion is a persisted configuration snapshot moving through the
-// MEG-015 §08 activation state machine (Draft -> Validated -> Active ->
+// activation state machine (Draft -> Validated -> Active ->
 // Superseded, with Validated -> Rejected as the failed-validation branch).
 // The Payload itself is immutable once saved; only Status and the
 // transition timestamps below change over the version's lifetime.

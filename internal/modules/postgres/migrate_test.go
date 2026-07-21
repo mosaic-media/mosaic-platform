@@ -13,8 +13,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/contracts"
 )
 
-// TestMigrateFromEmptyDatabase is the MEG-015 §12 exit criterion "Migrations
-// run" and §11's migration gate "fresh install ... tested".
+// TestMigrateFromEmptyDatabase exercises the migration gate: migrations run
+// against a fresh install and the database is detectably migrated afterwards.
 func TestMigrateFromEmptyDatabase(t *testing.T) {
 	requirePostgres(t)
 	pool := freshDatabase(t)
@@ -53,7 +53,7 @@ func TestMigrateFromEmptyDatabase(t *testing.T) {
 }
 
 // TestMigrateIsIdempotent verifies re-running against an already-migrated
-// database is a no-op success (MEG-007 §10 — Idempotency).
+// database is a no-op success.
 func TestMigrateIsIdempotent(t *testing.T) {
 	requirePostgres(t)
 	pool := freshDatabase(t)
@@ -84,8 +84,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 }
 
 // TestMigrateDetectsIncompatibleChecksum: an applied migration whose recorded
-// checksum differs from this binary's definition must fail fast (MEG-015 §05
-// — "detect ... incompatible ... migrations").
+// checksum differs from this binary's definition must fail fast.
 func TestMigrateDetectsIncompatibleChecksum(t *testing.T) {
 	requirePostgres(t)
 	pool := freshDatabase(t)
@@ -110,8 +109,7 @@ func TestMigrateDetectsIncompatibleChecksum(t *testing.T) {
 }
 
 // TestMigrateDetectsPartialApplication: a gap in the applied version sequence
-// (an earlier migration missing while a later one is present) must fail fast
-// (MEG-015 §05 — "detect ... partially applied migrations").
+// (an earlier migration missing while a later one is present) must fail fast.
 func TestMigrateDetectsPartialApplication(t *testing.T) {
 	requirePostgres(t)
 	pool := freshDatabase(t)
@@ -137,8 +135,7 @@ func TestMigrateDetectsPartialApplication(t *testing.T) {
 
 // TestMigrateDetectsDatabaseAhead: an applied migration version this binary
 // does not know about means the database was migrated by a newer binary; the
-// older binary must refuse to run against it (MEG-015 §05 — "detect missing,
-// incompatible or partially applied migrations").
+// older binary must refuse to run against it.
 func TestMigrateDetectsDatabaseAhead(t *testing.T) {
 	requirePostgres(t)
 	pool := freshDatabase(t)

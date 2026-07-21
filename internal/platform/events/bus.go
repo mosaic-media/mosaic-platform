@@ -15,14 +15,13 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// Bus is the Platform's in-process Event Bus (MEG-015 §06 — First Event
-// Model). It implements contracts.EventPublisher and
-// contracts.ComponentHealthReporter (MEG-015 §09 — Diagnostics Model).
+// Bus is the Platform's in-process Event Bus. It implements
+// contracts.EventPublisher and contracts.ComponentHealthReporter, per the
+// diagnostics model.
 //
 // Publish dispatches event to every subscriber registered for event.Type,
 // synchronously, in registration order. The publisher does not know or care
-// who is listening (MAC-001 §06): publishing an event nobody subscribed to
-// is not an error.
+// who is listening: publishing an event nobody subscribed to is not an error.
 //
 // If ANY subscriber handler returns an error, Publish returns a non-nil
 // error built from all of the failing handlers' errors — it does not
@@ -52,7 +51,7 @@ type Bus struct {
 type BusOption func(*Bus)
 
 // WithBusComponent overrides the component identifier Bus reports itself
-// under (MEG-015 §09 — Diagnostics Model).
+// under in the diagnostics model.
 func WithBusComponent(component string) BusOption {
 	return func(b *Bus) { b.component = component }
 }

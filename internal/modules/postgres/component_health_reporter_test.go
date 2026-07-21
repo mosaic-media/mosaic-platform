@@ -12,8 +12,8 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// TestComponentHealthReporterReflectsRealDatabaseState proves the MEG-015
-// §12 Diagnostics exit criterion for the storage component directly: this
+// TestComponentHealthReporterReflectsRealDatabaseState proves the
+// Diagnostics exit criterion for the storage component directly: this
 // is NOT a hardcoded "ok" — ReportHealth reflects a real, fully migrated
 // PostgreSQL database when one is reachable, and reports Unavailable with a
 // real reason once the connection is actually closed.

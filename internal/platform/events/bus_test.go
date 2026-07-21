@@ -162,8 +162,8 @@ func TestBusPublishReportsFailureEvenWhenOtherSubscribersSucceed(t *testing.T) {
 
 // TestSubscriberIdempotencyAcrossDuplicatePublish is the exit-criteria test:
 // a deliberately idempotent subscriber, published the same event twice,
-// produces no duplicate side effect. At-least-once delivery (MEG-015 §06)
-// means a subscriber WILL see the same event more than once — via worker
+// produces no duplicate side effect. At-least-once delivery means a
+// subscriber WILL see the same event more than once — via worker
 // retries, or here, via a direct duplicate Publish simulating that — and it
 // must handle that safely.
 func TestSubscriberIdempotencyAcrossDuplicatePublish(t *testing.T) {

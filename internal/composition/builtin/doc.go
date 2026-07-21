@@ -3,7 +3,7 @@
 // Linking exception: see LICENSE-EXCEPTION.
 
 // Package builtin defines the registration shape for built-in modules —
-// Postgres first — mirroring how a future external Module (MEG-006) would
+// Postgres first — mirroring how a future external Module would
 // declare itself and be discovered, but compiled in, required and trusted.
 //
 // It owns only the Manifest type, the Module interface and a Registry. It

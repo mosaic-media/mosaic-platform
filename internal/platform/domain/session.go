@@ -7,21 +7,23 @@ package domain
 import "time"
 
 // AuthStrength records which authentication factor produced a Session, so
-// policy decisions can weigh session strength (MEG-009 §04 — Attribute-
-// Based Access Control) without depending on how the factor was verified.
+// policy decisions can weigh session strength without depending on how the
+// factor was verified.
 type AuthStrength string
 
 const (
+	// AuthStrengthPassword marks a Session produced by password verification.
 	AuthStrengthPassword AuthStrength = "password"
-	AuthStrengthPasskey  AuthStrength = "passkey"
+	// AuthStrengthPasskey marks a Session produced by passkey verification.
+	AuthStrengthPasskey AuthStrength = "passkey"
+	// AuthStrengthRecovery marks a Session produced through the recovery flow.
 	AuthStrengthRecovery AuthStrength = "recovery"
 )
 
-// Session is a server-issued, revocable Platform session (MEG-015 §07 —
-// Session Model). Fields match §07's session table exactly, plus RevokedAt
-// to record the revocation §07 requires ("sessions should be ... revocable
-// ... remote sign-out should revoke server-side session records, not rely
-// on clients deleting tokens").
+// Session is a server-issued, revocable Platform session. Fields match the
+// session model's session table, plus RevokedAt to record revocation: remote
+// sign-out revokes server-side session records rather than relying on clients
+// deleting tokens.
 type Session struct {
 	ID           SessionID
 	UserID       UserID

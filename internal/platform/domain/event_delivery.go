@@ -9,14 +9,13 @@ import "time"
 // DeliveryPolicy is the Platform's outbox retry and dead-letter rule. It is
 // pure value logic — given the number of attempts made so far and the current
 // time, it decides when the next attempt is due and whether the event has
-// exhausted its retries and must be dead-lettered (MEG-015 §06 — Failure
-// Behaviour). The outbox worker that performs deliveries and calls into this
-// is a later slice; the rule lives here so the failure bookkeeping is real
-// and independently testable now.
+// exhausted its retries and must be dead-lettered. It lives here, apart from
+// the outbox worker that performs deliveries, so the failure bookkeeping is
+// pure value logic and independently testable.
 //
-// MEG-015 §06 notes that critical Platform events may warrant stricter rules
-// than low-priority diagnostic events. This first cut applies one uniform
-// policy; per-event-class policies can be layered on later.
+// Critical Platform events may warrant stricter rules than low-priority
+// diagnostic events. This applies one uniform policy; per-event-class
+// policies can be layered on later.
 type DeliveryPolicy struct {
 	// MaxAttempts is the number of failed attempts after which an event is
 	// dead-lettered rather than retried again.

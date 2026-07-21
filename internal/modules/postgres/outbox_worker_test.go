@@ -17,8 +17,8 @@ import (
 
 // TestOutboxRecordFailurePersistsExactBookkeeping verifies, via raw SQL
 // against the real table, that RecordFailure writes exactly the bookkeeping
-// MEG-015 §06 — Failure Behaviour requires: attempt count, last error
-// category, next retry time and owning component. The reusable contract
+// the failure behaviour requires: attempt count, last error category, next
+// retry time and owning component. The reusable contract
 // suite (test/contract/suite.go) only asserts the behavioural consequence
 // (the event stops being immediately deliverable); this is where the exact
 // column values are checked, because EventOutbox has no adapter-agnostic
@@ -134,8 +134,8 @@ func TestOutboxListUnpublishedBecomesDeliverableOnceRetryIsDue(t *testing.T) {
 }
 
 // TestWorkerPublishesFromRealPostgresOutboxToIdempotentSubscriber is the
-// MEG-015 §12 exit criterion — "Outbox worker publishes to an idempotent
-// local subscriber" — proven end to end against a real database: a command
+// exit criterion — "Outbox worker publishes to an idempotent local
+// subscriber" — proven end to end against a real database: a command
 // commits state and an outbox row in the same transaction (proving
 // atomicity again, incidentally), then a real events.Worker over the real
 // events.Bus drains it. The subscriber tracks processed event IDs and is

@@ -16,7 +16,7 @@ import (
 // DeriveKey derives a 32-byte AES-256 key from arbitrary-length key
 // material via SHA-256. This is a first-cut KDF: it has no configurable
 // work factor, so it is appropriate for a recovery key that is itself
-// high-entropy random material (MEG-015 §08's vault recovery key), not for
+// high-entropy random material (the vault's recovery key), not for
 // deriving a key from a low-entropy human password. A stronger, tunable
 // KDF (Argon2id/scrypt) can replace this later without changing the
 // Encrypt/Decrypt contract.

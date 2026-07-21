@@ -11,7 +11,7 @@ import (
 )
 
 // Lifecycle tracks this process's own position in its startup/shutdown
-// lifecycle (MEG-015 §09/§10), reusing domain.LifecycleState so the
+// lifecycle, reusing domain.LifecycleState so the
 // Platform's own state uses the same vocabulary every other reported
 // component already does.
 type Lifecycle struct {

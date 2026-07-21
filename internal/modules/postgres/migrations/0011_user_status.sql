@@ -1,6 +1,6 @@
--- Migration 0011 — Admin-managed user status (MEG-015 §09 — Users: "user
--- list, user detail and admin-managed status"). Additive (expand strategy,
--- MEG-005 §21): adds a status column to the users table from migration
+-- Migration 0011 — Admin-managed user status (user list, user detail and
+-- admin-managed status). Additive (expand strategy): adds a status column
+-- to the users table from migration
 -- 0001.
 
 ALTER TABLE users

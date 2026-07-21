@@ -12,9 +12,9 @@ import (
 )
 
 // decodeFields parses a config payload as a flat JSON object of field name
-// to raw value, matching the dotted-key shape MEG-015 §08 shows
-// (`storage.postgres.password = secret://...`). An empty payload decodes to
-// no fields, so a fresh install activating its first version has nothing to
+// to raw value, matching the dotted-key shape the configuration lifecycle
+// uses (`storage.postgres.password = secret://...`). An empty payload decodes
+// to no fields, so a fresh install activating its first version has nothing to
 // diff against.
 func decodeFields(payload []byte) (map[string]json.RawMessage, error) {
 	if len(payload) == 0 {
@@ -77,9 +77,8 @@ func FieldNames(payload []byte) ([]string, error) {
 }
 
 // FieldValue decodes field's raw JSON value from payload as a string. A
-// Secret field's value must decode this way (MEG-015 §08 — Secret
-// References store a secret:// reference string, never a raw value or a
-// nested structure), so Validate uses this to check it.
+// Secret field's value must decode this way — a secret:// reference string,
+// never a raw value or a nested structure — so Validate uses this to check it.
 func FieldValue(payload []byte, field string) (string, error) {
 	fields, err := decodeFields(payload)
 	if err != nil {

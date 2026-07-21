@@ -228,8 +228,8 @@ func TestManagerValidateRejectsSecretFieldHoldingARawValue(t *testing.T) {
 	manager := config.NewManager(fakeClock{now: testNow}, &sequentialIDGenerator{}, testSchema(t))
 	ctx := context.Background()
 
-	// MEG-015 §08: "Configuration should store secret references, not
-	// secret values." A raw literal in a Secret field must never validate.
+	// Configuration should store secret references, not secret values: a
+	// raw literal in a Secret field must never validate.
 	draft, err := manager.Draft(ctx, store, []byte(`{"storage.postgres.password":"hunter2"}`))
 	if err != nil {
 		t.Fatalf("Draft: %v", err)

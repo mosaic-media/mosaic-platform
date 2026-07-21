@@ -7,13 +7,10 @@ package domain
 import "time"
 
 // RedactionClass classifies how an event's payload should be treated in
-// diagnostics and support bundles (MEG-015 §06 envelope field
-// "redaction_class"; MEG-015 §09 — Diagnostics: "support bundle redaction
-// class"). The specs reference the field without enumerating values yet, so
-// this is a first cut with a redact-by-default bias: support bundles must be
-// "fully anonymised" (§09), and audit payloads "must avoid credential
-// material and must be compatible with redacted diagnostics" (§07). A fuller
-// taxonomy can extend this when the Diagnostics slice lands.
+// diagnostics and support bundles. It has a redact-by-default bias: support
+// bundles must be fully anonymised, and audit payloads must avoid credential
+// material and stay compatible with redacted diagnostics. A fuller taxonomy
+// can extend this later.
 type RedactionClass string
 
 const (
@@ -26,13 +23,12 @@ const (
 	RedactionSensitive RedactionClass = "sensitive"
 	// RedactionSecret marks a payload that carries credential or secret
 	// material and must never appear in diagnostics. Audit payloads should
-	// never be this class (§07); it exists as an explicit guard.
+	// never be this class; it exists as an explicit guard.
 	RedactionSecret RedactionClass = "secret"
 )
 
 // Event is a Platform domain event and its envelope. Modules own event
-// meaning; the Platform owns the envelope and routing (MAC-001 §06). The
-// fields are the event envelope defined in MEG-015 §06.
+// meaning; the Platform owns the envelope and routing.
 type Event struct {
 	// ID is the stable event identity (envelope: event_id).
 	ID EventID
@@ -66,29 +62,26 @@ type Event struct {
 
 // OutboxEvent is an Event persisted through the transactional outbox
 // pattern, alongside the state change that produced it, pending asynchronous
-// publication. It carries the delivery bookkeeping MEG-015 §06 — Failure
-// Behaviour requires the outbox worker to track. The worker itself is a
-// later slice; this type and the fields exist so the write path and failure
-// bookkeeping are real now.
+// publication. It carries the delivery bookkeeping the outbox worker tracks.
 type OutboxEvent struct {
 	Event
 
 	// PublishedAt is set once the event has been published to subscribers.
 	PublishedAt *time.Time
 
-	// Attempts counts delivery attempts made so far (§06: attempt count).
+	// Attempts counts delivery attempts made so far.
 	Attempts int
 	// LastErrorCategory is the Platform error category of the most recent
-	// failed delivery, empty if none (§06: last error category).
+	// failed delivery, empty if none.
 	LastErrorCategory string
 	// NextRetryAt is when the next delivery attempt becomes due, nil if not
-	// scheduled (§06: next retry time).
+	// scheduled.
 	NextRetryAt *time.Time
-	// DeadLettered marks an event abandoned after exhausting retries (§06:
-	// dead-letter status). A dead-lettered event is never published.
+	// DeadLettered marks an event abandoned after exhausting retries.
+	// A dead-lettered event is never published.
 	DeadLettered bool
 	// OwningComponent is the component responsible for the event's delivery,
-	// used to route failures (§06: owning component).
+	// used to route failures.
 	OwningComponent string
 }
 

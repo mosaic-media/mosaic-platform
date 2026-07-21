@@ -15,8 +15,7 @@ import (
 // ActionUserList is the policy action evaluated for ListUsers.
 const ActionUserList policy.Action = "user.list"
 
-// ListUsersQuery lists every local Platform user (MEG-015 §09 — Users:
-// "user list").
+// ListUsersQuery lists every local Platform user.
 type ListUsersQuery struct {
 	CallerSessionID domain.SessionID
 }
@@ -33,8 +32,8 @@ func validateListUsersQuery(query ListUsersQuery) error {
 	return nil
 }
 
-// ListUsers implements the query boundary from MEG-015 §04: authenticate
-// and authorize before reading state, no UnitOfWork needed for a read.
+// ListUsers implements the query boundary: authenticate and authorize before
+// reading state, no UnitOfWork needed for a read.
 func (s *Service) ListUsers(ctx context.Context, query ListUsersQuery) (ListUsersResult, error) {
 	if err := validateListUsersQuery(query); err != nil {
 		return ListUsersResult{}, err

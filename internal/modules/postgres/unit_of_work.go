@@ -14,8 +14,7 @@ import (
 )
 
 // UnitOfWork is the PostgreSQL implementation of contracts.UnitOfWork. It
-// owns transaction mechanics; application services decide transaction scope
-// (MEG-015 §04).
+// owns transaction mechanics; application services decide transaction scope.
 type UnitOfWork struct {
 	pool *pgxpool.Pool
 }
@@ -29,11 +28,9 @@ func NewUnitOfWork(pool *pgxpool.Pool) *UnitOfWork {
 // store is bound to that same transaction handle, and commits only if fn
 // returns nil. Because Users(), Sessions(), Outbox() and the rest all share
 // the one pgx.Tx, a state write and its outbox event are structurally in the
-// same transaction — atomicity is enforced by construction, not convention
-// (MEG-015 §05 — "outbox writes occur in the same transaction as state
-// changes"). Any error from fn rolls the whole transaction back, so a
-// partial write is never committed and never observable by another
-// transaction.
+// same transaction — atomicity is enforced by construction, not convention.
+// Any error from fn rolls the whole transaction back, so a partial write is
+// never committed and never observable by another transaction.
 func (u *UnitOfWork) WithinTx(ctx context.Context, fn func(ctx context.Context, tx contracts.Tx) error) error {
 	pgxTx, err := u.pool.Begin(ctx)
 	if err != nil {

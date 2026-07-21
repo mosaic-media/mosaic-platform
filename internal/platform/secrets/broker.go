@@ -14,13 +14,11 @@ import (
 	"github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 )
 
-// Broker is the Platform's contracts.SecretBroker implementation
-// (MEG-015 §08). It prefers the OS keychain and falls back to the
-// encrypted local vault when the keychain is unavailable; which backend a
-// given deployment actually uses is resolved once (not re-probed per
-// call), matching "local deployments use the operating-system keychain
-// where available" as a deployment-level characteristic, not a per-secret
-// choice (MEG-005 §19).
+// Broker is the Platform's contracts.SecretBroker implementation. It
+// prefers the OS keychain and falls back to the encrypted local vault when
+// the keychain is unavailable; which backend a given deployment actually
+// uses is resolved once (not re-probed per call), a deployment-level
+// characteristic rather than a per-secret choice.
 type Broker struct {
 	keychain SecretStore
 	vault    SecretStore
@@ -66,8 +64,8 @@ func (b *Broker) Resolve(ctx context.Context, ref domain.SecretRef) (domain.Secr
 
 // Rotate generates a new, cryptographically random value for ref, persists
 // it with an incremented version, and returns it. Secret versions rotate
-// independently of ordinary configuration (MEG-005 §19): the config value
-// (a secret:// reference) never has to change, only what it resolves to.
+// independently of ordinary configuration: the config value (a secret://
+// reference) never has to change, only what it resolves to.
 func (b *Broker) Rotate(ctx context.Context, ref domain.SecretRef) (domain.Secret, error) {
 	if ref.Name == "" {
 		return domain.Secret{}, contracts.NewError(contracts.InvalidArgument, "secret name is required")

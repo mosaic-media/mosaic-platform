@@ -21,7 +21,7 @@ import (
 
 // TestPostgresPassesContractSuite runs the reusable, adapter-agnostic storage
 // contract suite (test/contract) against a real, migrated PostgreSQL database
-// — the MEG-015 §12 exit criterion "adapter passes contract tests".
+// — the exit criterion "adapter passes contract tests".
 func TestPostgresPassesContractSuite(t *testing.T) {
 	requirePostgres(t)
 
@@ -61,7 +61,7 @@ func TestPostgresPassesContractSuite(t *testing.T) {
 // from the earlier slices work through the real Postgres adapter with NO
 // changes to the application service code — only the wired contracts differ
 // from the in-memory fakes. If this required editing internal/platform/app,
-// the contracts would not be adapter-agnostic (MEG-015 §12 exit criterion).
+// the contracts would not be adapter-agnostic.
 func TestApplicationServicesRunAgainstPostgres(t *testing.T) {
 	requirePostgres(t)
 
@@ -228,7 +228,7 @@ type noopSubscription struct{}
 func (noopSubscription) Unsubscribe() {}
 
 // reversibleVerifier is a deliberately insecure test PasswordVerifier. Real
-// Argon2id hashing belongs to a future crypto adapter (MEG-015 §07).
+// Argon2id hashing belongs to a future crypto adapter.
 type reversibleVerifier struct{}
 
 func (reversibleVerifier) Hash(plaintext string) (string, error) {

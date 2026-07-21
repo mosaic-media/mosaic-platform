@@ -7,7 +7,7 @@ package runtime
 import "github.com/mosaic-media/mosaic-platform/internal/platform/domain"
 
 // LivenessResult is the Supervisor-facing answer to "should this process
-// keep running" (MEG-015 §10 — Liveness health).
+// keep running".
 type LivenessResult struct {
 	Alive     bool
 	Lifecycle domain.LifecycleState

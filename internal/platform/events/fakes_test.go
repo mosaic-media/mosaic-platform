@@ -15,8 +15,7 @@ import (
 )
 
 // testClock is a mutable clock so retry-backoff tests can advance time
-// deterministically instead of sleeping (MEG-001 §11 — Avoid Sleep-Based
-// Tests).
+// deterministically instead of sleeping.
 type testClock struct {
 	mu  sync.Mutex
 	now time.Time

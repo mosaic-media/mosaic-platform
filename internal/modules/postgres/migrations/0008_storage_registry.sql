@@ -1,5 +1,5 @@
--- Migration 0008 — Storage registry (MEG-015 §05, First Schema Areas:
--- Storage registry). Tables: object records, logical ownership, retention
+-- Migration 0008 — Storage registry.
+-- Tables: object records, logical ownership, retention
 -- metadata. Table only this slice; the object registry service lands later.
 
 CREATE TABLE IF NOT EXISTS object_records (

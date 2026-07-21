@@ -21,11 +21,10 @@ type registration struct {
 }
 
 // Registry aggregates real component health from every registered
-// contracts.ComponentHealthReporter (MEG-015 §09 — Diagnostics Model). It
-// is the mechanism that answers "granular enough... without reducing the
-// whole system to a single failed state": Snapshot reports every
-// component's own health independently, so one degraded component never
-// masks another's.
+// contracts.ComponentHealthReporter. It is the mechanism that answers
+// "granular enough... without reducing the whole system to a single failed
+// state": Snapshot reports every component's own health independently, so
+// one degraded component never masks another's.
 type Registry struct {
 	mu   sync.Mutex
 	regs map[string]registration

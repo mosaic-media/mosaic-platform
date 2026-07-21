@@ -1,4 +1,4 @@
--- Migration 0003 — Permissions (MEG-015 §05, First Schema Areas: Permissions).
+-- Migration 0003 — Permissions.
 -- Tables: roles, grants, resource attributes, policy audit records.
 
 CREATE TABLE IF NOT EXISTS roles (
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS grants (
 
 CREATE INDEX IF NOT EXISTS grants_user_id_idx ON grants (user_id);
 
--- ABAC subject attributes (MEG-009 §04 — Attribute-Based Access Control).
+-- ABAC subject attributes (Attribute-Based Access Control).
 -- Keyed per subject so PermissionStore.AttributesForUser can resolve them.
 CREATE TABLE IF NOT EXISTS resource_attributes (
     subject_user_id text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS resource_attributes (
     PRIMARY KEY (subject_user_id, key)
 );
 
--- Explainable, auditable policy decisions (MEG-009 §04 — Auditability).
+-- Explainable, auditable policy decisions (Auditability).
 -- Table only this slice; the policy engine does not yet persist here.
 CREATE TABLE IF NOT EXISTS policy_audit_records (
     id              text        PRIMARY KEY,

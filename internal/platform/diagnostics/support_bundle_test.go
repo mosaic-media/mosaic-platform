@@ -55,7 +55,7 @@ func TestBuildSupportBundleRedactsAnythingNotExplicitlyNone(t *testing.T) {
 		t.Fatalf("expected the RedactionNone component's DegradedReason to survive unchanged, got %q", byComponent["event-bus"].DegradedReason)
 	}
 	// Program and Module identification must still be present — a support
-	// bundle is anonymised, not unidentifiable (MEG-015 §09).
+	// bundle is anonymised, not unidentifiable.
 	if bundle.ProgramID != "mosaic-platform" {
 		t.Fatalf("ProgramID = %q, want mosaic-platform", bundle.ProgramID)
 	}

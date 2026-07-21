@@ -15,8 +15,7 @@ import (
 )
 
 // userStore is the PostgreSQL contracts.UserStore. It owns SQL and row
-// mapping and returns only domain.User values across the boundary
-// (MEG-015 §05).
+// mapping and returns only domain.User values across the boundary.
 type userStore struct {
 	q queryer
 }

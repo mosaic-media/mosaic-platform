@@ -16,7 +16,7 @@ import (
 // ValidateConfigVersion.
 const ActionConfigValidate policy.Action = "config.validate"
 
-// ValidateConfigVersionCommand runs the Validate step of the MEG-015 §08
+// ValidateConfigVersionCommand runs the Validate step of the
 // activation state machine against a Draft version.
 type ValidateConfigVersionCommand struct {
 	CallerSessionID domain.SessionID
@@ -40,8 +40,8 @@ func validateValidateConfigVersionCommand(cmd ValidateConfigVersionCommand) erro
 	return nil
 }
 
-// ValidateConfigVersion implements the command boundary from MEG-015 §04
-// for the Validate step of the §08 activation state machine.
+// ValidateConfigVersion implements the command boundary for the Validate
+// step of the activation state machine.
 func (s *Service) ValidateConfigVersion(ctx context.Context, cmd ValidateConfigVersionCommand) (ValidateConfigVersionResult, error) {
 	// 1. validate command shape.
 	if err := validateValidateConfigVersionCommand(cmd); err != nil {

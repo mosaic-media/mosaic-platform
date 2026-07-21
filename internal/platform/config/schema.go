@@ -6,21 +6,20 @@ package config
 
 import "fmt"
 
-// FieldSpec declares one configuration field's reload class (MEG-015 §08).
+// FieldSpec declares one configuration field's reload class.
 type FieldSpec struct {
 	Name        string
 	ReloadClass ReloadClass
-	// Secret marks a field whose value must be a secret:// reference
-	// (MEG-015 §08 — Secret References), never a raw value. Validate
-	// rejects a Secret field whose value is not a well-formed reference,
-	// so a secret value can never reach a persisted configuration version.
+	// Secret marks a field whose value must be a secret:// reference,
+	// never a raw value. Validate rejects a Secret field whose value is
+	// not a well-formed reference, so a secret value can never reach a
+	// persisted configuration version.
 	Secret bool
 }
 
 // Schema is the structural registry of every known configuration field and
-// its declared reload class. It is the mechanism MEG-015 §08 requires:
-// callers query it to learn whether a change can hot-apply, instead of
-// relying on documentation.
+// its declared reload class. Callers query it to learn whether a change can
+// hot-apply, instead of relying on documentation.
 type Schema struct {
 	fields map[string]FieldSpec
 }
@@ -52,9 +51,9 @@ func (s *Schema) ReloadClassOf(field string) (ReloadClass, bool) {
 	return f.ReloadClass, ok
 }
 
-// IsSecret reports whether field is declared as a secret-reference field
-// (MEG-015 §08 — Secret References). An unregistered field reports false;
-// Validate's registration check rejects it before this ever matters.
+// IsSecret reports whether field is declared as a secret-reference field.
+// An unregistered field reports false; Validate's registration check rejects
+// it before this ever matters.
 func (s *Schema) IsSecret(field string) bool {
 	return s.fields[field].Secret
 }
@@ -80,23 +79,23 @@ func (s *Schema) RequiredReloadClass(changedFields []string) (class ReloadClass,
 }
 
 // PlatformSchema is the first-cut registry of Platform configuration
-// fields and their reload classes (MEG-015 §08). It illustrates all four
-// classes against concepts already defined elsewhere in the architecture:
+// fields and their reload classes. It illustrates all four classes against
+// concepts already defined elsewhere in the architecture:
 //
 //   - runtime.log_level: the canonical hot-reload example.
 //   - runtime.environment: matches the existing bootstrap Config.Environment
 //     placeholder; switching environment requires a process restart.
 //   - composition.modules: which Modules are compiled into the running
-//     binary. A Generation is defined (MIP-006) as exactly "Platform, Shell
-//     and admitted Modules", so changing module composition requires the
-//     Supervisor to activate a new Generation.
+//     binary. A Generation is exactly "Platform, Shell and admitted Modules",
+//     so changing module composition requires the Supervisor to activate a
+//     new Generation.
 //   - storage.postgres.dsn: the primary datastore is explicitly outside the
-//     Generation boundary (MEG-005 §21 — "the PostgreSQL database is never
-//     inside a Generation"), so changing it is a recovery-flow action, not a
-//     hot toggle or a Generation swap.
+//     Generation boundary — the PostgreSQL database is never inside a
+//     Generation — so changing it is a recovery-flow action, not a hot toggle
+//     or a Generation swap.
 //   - storage.postgres.password: a Secret field — its value must be a
-//     secret:// reference, matching MEG-015 §08's own example exactly
-//     ("storage.postgres.password = secret://platform/postgres/password").
+//     secret:// reference such as
+//     "storage.postgres.password = secret://platform/postgres/password".
 //     Grouped with the DSN under the same Recovery class, since both name
 //     the same storage-connection concern.
 func PlatformSchema() *Schema {

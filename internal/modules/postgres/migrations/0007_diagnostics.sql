@@ -1,7 +1,7 @@
--- Migration 0007 — Diagnostics (MEG-015 §05, First Schema Areas: Diagnostics).
+-- Migration 0007 — Diagnostics.
 -- Tables: component health snapshots, support bundle records. Table only this
 -- slice; the diagnostics surface and redacted support bundle land later
--- (MEG-015 §12 — Diagnostics and health).
+-- (Diagnostics and health).
 
 CREATE TABLE IF NOT EXISTS component_health_snapshots (
     id         text        PRIMARY KEY,

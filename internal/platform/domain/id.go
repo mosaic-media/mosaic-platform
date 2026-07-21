@@ -6,7 +6,7 @@ package domain
 
 // ID is a Platform-generated identifier. It carries no assumptions about
 // the generation strategy (UUID, ULID, sequence, ...); that choice belongs
-// to the IDGenerator adapter (MEG-004 §04 — Driven Ports).
+// to the IDGenerator adapter.
 type ID string
 
 // UserID identifies a User.
@@ -25,7 +25,7 @@ type ConfigVersionID ID
 type EventID ID
 
 // DeviceID identifies the registered device or browser a Session was
-// issued to (MEG-015 §07 — Session Model).
+// issued to, per the session model.
 type DeviceID ID
 
 // The content-model identifiers live in the published contract surface

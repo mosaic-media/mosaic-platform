@@ -1,4 +1,4 @@
--- Migration 0001 — Identity (MEG-015 §05, First Schema Areas: Identity).
+-- Migration 0001 — Identity.
 -- Tables: users, credentials (password), passkey credentials, recovery factors.
 -- Expand-only: additive create statements, no destructive changes.
 
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- §05 "credentials": the local password verifier record. One per user; the
--- stored value is an opaque hash (Argon2id in production, MEG-009 §03) — the
+-- stored value is an opaque hash (Argon2id in production) — the
 -- Platform never persists a plaintext password.
 CREATE TABLE IF NOT EXISTS password_credentials (
     user_id    text        PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,

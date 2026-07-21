@@ -43,7 +43,7 @@ func permissionsToStrings(permissions []domain.Permission) []string {
 	return out
 }
 
-// userType is the GraphQL projection of domain.User (MEG-015 §09 — Users).
+// userType is the GraphQL projection of domain.User.
 var userType = graphql.NewObject(graphql.ObjectConfig{
 	Name: "User",
 	Fields: graphql.Fields{
@@ -62,7 +62,7 @@ var userType = graphql.NewObject(graphql.ObjectConfig{
 })
 
 // sessionType is the GraphQL projection of domain.Session, used for the
-// signIn payload (MEG-015 §09 — Auth).
+// signIn payload.
 var sessionType = graphql.NewObject(graphql.ObjectConfig{
 	Name: "Session",
 	Fields: graphql.Fields{
@@ -90,8 +90,7 @@ var sessionType = graphql.NewObject(graphql.ObjectConfig{
 	},
 })
 
-// roleType is the GraphQL projection of domain.Role (MEG-015 §09 —
-// Permissions: "roles").
+// roleType is the GraphQL projection of domain.Role.
 var roleType = graphql.NewObject(graphql.ObjectConfig{
 	Name: "Role",
 	Fields: graphql.Fields{
@@ -103,8 +102,7 @@ var roleType = graphql.NewObject(graphql.ObjectConfig{
 	},
 })
 
-// grantType is the GraphQL projection of domain.Grant (MEG-015 §09 —
-// Permissions: "grants").
+// grantType is the GraphQL projection of domain.Grant.
 var grantType = graphql.NewObject(graphql.ObjectConfig{
 	Name: "Grant",
 	Fields: graphql.Fields{
@@ -113,8 +111,7 @@ var grantType = graphql.NewObject(graphql.ObjectConfig{
 	},
 })
 
-// configVersionType is the GraphQL projection of domain.ConfigVersion
-// (MEG-015 §09 — Configuration).
+// configVersionType is the GraphQL projection of domain.ConfigVersion.
 var configVersionType = graphql.NewObject(graphql.ObjectConfig{
 	Name: "ConfigVersion",
 	Fields: graphql.Fields{
