@@ -15,3 +15,9 @@ logs/
 # Process ids recorded by scripts/dev.ps1 so it can stop what it started.
 .dev-pids
 .tmp/
+
+# A Go workspace is a local-development artifact, never a committed one: it
+# names absolute paths that are true on one machine. The dev stack's local
+# overlay writes one outside the bind mount for exactly this reason.
+go.work
+go.work.sum

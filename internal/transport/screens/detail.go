@@ -86,6 +86,12 @@ func (s *Service) richDetail(ctx context.Context, caller v1.Caller, ref v1.Conte
 				"poster":    s.art(m.Poster),
 			}))))
 		}
+		// Re-importing an in-library item refreshes its candidate releases
+		// (additive — nothing is removed). It is offered explicitly rather than
+		// run on every view because an aggregator fan-out costs seconds and most
+		// views never lead to a play.
+		els = append(els, ui.Button("Refresh sources", "secondary",
+			ui.OnTap(ui.Invoke(importContentMutation, map[string]any{paramRef: refInput(ref)}))))
 		els = append(els, ui.Badge("In library", ui.ToneSuccess))
 		actions = ui.Actions(els...)
 	}

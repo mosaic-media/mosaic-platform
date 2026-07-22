@@ -84,3 +84,15 @@ func (s *Service) FirstPlayablePart(ctx context.Context, caller v1.Caller, workI
 	}
 	return v1.Part{}, false
 }
+
+// ListContentParts satisfies the published ContentService (SDK v0.10.0). It is a
+// thin alias over ListNodeParts: the Platform grew the read first, for the
+// emit-side's Play affordance, and the SDK grew it when a module needed to see
+// its own writes to refresh a candidate set.
+func (s *Service) ListContentParts(ctx context.Context, q v1.ListContentPartsQuery) (v1.ListContentPartsResult, error) {
+	res, err := s.ListNodeParts(ctx, ListNodePartsQuery{Caller: q.Caller, NodeID: q.NodeID})
+	if err != nil {
+		return v1.ListContentPartsResult{}, err
+	}
+	return v1.ListContentPartsResult{Parts: res.Parts}, nil
+}

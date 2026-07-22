@@ -426,9 +426,23 @@ func TestInLibraryDetailShowsInLibraryMarker(t *testing.T) {
 	if !ok || prop(hero, "title") != "Already Here" {
 		t.Fatalf("hero = %+v, want the metadata title", hero.Props)
 	}
-	actions := slotNodes(hero, "actions")
-	if len(actions) != 1 || actions[0].GetType() != sdui.TypeBadge || prop(actions[0], "label") != "In library" {
-		t.Fatalf("hero actions = %+v, want a single In library badge", actions)
+	// An in-library item carries the marker, and no Add to library — adding
+	// what is already there is the affordance this screen must never offer.
+	if _, ok := findButton(node, "Add to library"); ok {
+		t.Error("an in-library item must not offer Add to library")
+	}
+	if _, ok := find(node, sdui.TypeBadge); !ok {
+		t.Error("an in-library item must carry the In library marker")
+	}
+	// It also offers Refresh sources: a candidate set goes stale as releases
+	// appear and disappear, and re-importing is how a user asks for the current
+	// answer. Play is absent here because this fake has no playable part, which
+	// is the gating TestDetailPlayAffordanceIsGatedOnAPartExisting covers.
+	if _, ok := findButton(node, "Refresh sources"); !ok {
+		t.Error("an in-library item must offer Refresh sources")
+	}
+	if _, ok := findButton(node, "Play"); ok {
+		t.Error("Play must not appear when nothing in the tree has bytes")
 	}
 }
 

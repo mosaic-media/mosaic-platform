@@ -38,7 +38,12 @@ services:
       # start — a far worse afternoon.
       - "5433:5432"
     volumes:
-      - mosaic-dev-pgdata:/var/lib/postgresql/data
+      # Mounted at /var/lib/postgresql, NOT .../data. The 18+ images store data
+      # in a major-version-specific subdirectory so that `pg_upgrade --link` has
+      # no mount-point boundary to cross; a volume at the old path is refused at
+      # startup rather than silently ignored, which is the right call and worth
+      # knowing before it looks like a broken image.
+      - mosaic-dev-pgdata18:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mosaic -d mosaic"]
       interval: 5s
@@ -124,7 +129,10 @@ services:
       - "5173:5173"
 
 volumes:
-  mosaic-dev-pgdata:
+  # Named for its major version: the 17-and-earlier layout is not readable by
+  # 18, so reusing the old name would fail on a stale volume rather than start
+  # clean.
+  mosaic-dev-pgdata18:
   mosaic-dev-gomod:
   mosaic-dev-gobuild:
   mosaic-dev-npm:

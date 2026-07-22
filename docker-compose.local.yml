@@ -33,12 +33,21 @@ services:
       - ../sdui:/src/sdui
       - ../module-stremio-addons:/src/module-stremio-addons
       - ../module-remote-playback:/src/module-remote-playback
-    # go.work is written at start rather than baked into the image, because the
-    # image is shared with the published stack and must not carry it.
+    environment:
+      # GOWORK points the workspace *outside* the bind mount. Writing go.work
+      # into /src/platform would put it on the host, where its container paths
+      # are meaningless — it broke host builds the first time, with errors about
+      # /src/sdui not existing. A workspace is a local-development artifact and
+      # must not escape into a repository.
+      GOWORK: /work/go.work
+    # Written at start rather than baked into the image: the image is shared with
+    # the published stack and must not carry a workspace at all.
     command: >
-      sh -c "cd /src/platform &&
-             go work init . 2>/dev/null || true &&
-             go work use . /src/sdk /src/sdui /src/module-stremio-addons /src/module-remote-playback &&
+      sh -c "mkdir -p /work &&
+             rm -f /work/go.work &&
+             go work init &&
+             go work use /src/platform /src/sdk /src/sdui /src/module-stremio-addons /src/module-remote-playback &&
+             cd /src/platform &&
              exec go run ./cmd/mosaic-platform"
 
   web:
