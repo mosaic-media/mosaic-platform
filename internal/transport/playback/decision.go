@@ -49,6 +49,13 @@ type Plan struct {
 	// rather than leaving a user to work out why the dialogue is unexpected.
 	AudioLanguage string
 
+	// Tonemap converts high dynamic range to SDR while re-encoding. It is set
+	// only alongside an ActionEncode video: there is no way to tone-map a copy.
+	Tonemap bool
+	// MaxHeight caps the encoded height, carried so the origin renders the same
+	// decision the planner made.
+	MaxHeight int
+
 	// DirectPlay is true when nothing needs doing and the origin can simply
 	// relay the upstream bytes, keeping byte-range seeking for free.
 	DirectPlay bool
@@ -64,6 +71,19 @@ type Plan struct {
 type ClientCodecs struct {
 	Video map[string]bool
 	Audio map[string]bool
+	// HDR reports whether the client can *render* high dynamic range, which is a
+	// separate question from whether it can decode the codec carrying it.
+	//
+	// Getting this wrong is visible rather than subtle. A Dolby Vision profile 5
+	// stream has no HDR10 base layer, so a decoder that ignores the DV metadata
+	// renders its ICtCp data as ordinary BT.2020 and the picture comes out
+	// purple and green. Treating "the client decodes HEVC" as sufficient is what
+	// produced exactly that.
+	HDR bool
+	// MaxHeight caps the encoded output, 0 for uncapped. Only applied when the
+	// video is being re-encoded anyway — downscaling a copy is not possible, and
+	// re-encoding purely to shrink is not this decision's call.
+	MaxHeight int
 }
 
 // DefaultBrowserCodecs is a conservative stand-in for a modern desktop Chrome
@@ -77,6 +97,12 @@ type ClientCodecs struct {
 var DefaultBrowserCodecs = ClientCodecs{
 	Video: map[string]bool{"h264": true, "vp8": true, "vp9": true, "av1": true, "hevc": true},
 	Audio: map[string]bool{"aac": true, "mp3": true, "opus": true, "vorbis": true, "flac": true},
+	// HDR off: a browser in a normal desktop session tone-maps nothing, and an
+	// HDR stream handed to it looks wrong rather than merely flat.
+	HDR: false,
+	// 1080p on an encode. If the video has to be re-encoded at all, sending 4K
+	// costs enormously more CPU and bandwidth than a browser window can use.
+	MaxHeight: 1080,
 }
 
 // PreferredLanguages is the order audio tracks are chosen in, most wanted first.
@@ -95,11 +121,21 @@ func Decide(info MediaInfo, codecs ClientCodecs, preferred []string) Plan {
 		VideoIndex: info.Video.Index,
 		Audio:      ActionDrop,
 		AudioIndex: -1,
+		MaxHeight:  codecs.MaxHeight,
 	}
 
-	if info.Video.Codec != "" && !codecs.Video[strings.ToLower(info.Video.Codec)] {
+	switch {
+	case info.Video.Codec != "" && !codecs.Video[strings.ToLower(info.Video.Codec)]:
 		plan.Video = ActionEncode
 		plan.Reason = "video codec " + info.Video.Codec + " is not decodable by this client"
+	case info.Video.HDRFormat != "" && !codecs.HDR:
+		// Decodable, and still wrong to pass through. This is the purple-and-green
+		// case: the client will happily decode the stream and render its colours
+		// as nonsense, which is worse than refusing it, because it looks like a
+		// broken file rather than an unsupported format.
+		plan.Video = ActionEncode
+		plan.Tonemap = true
+		plan.Reason = info.Video.HDRFormat + " needs tone-mapping for this client"
 	}
 
 	if track, ok := chooseAudio(info.Audio, preferred); ok {

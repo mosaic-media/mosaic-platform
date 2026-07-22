@@ -138,6 +138,7 @@ type ffprobeOutput struct {
 	Streams []struct {
 		Index         int    `json:"index"`
 		CodecName     string `json:"codec_name"`
+		CodecTag      string `json:"codec_tag_string"`
 		CodecType     string `json:"codec_type"`
 		Profile       string `json:"profile"`
 		Width         int    `json:"width"`
@@ -178,7 +179,8 @@ func parseProbe(raw []byte) (MediaInfo, error) {
 			}
 			info.Video = VideoTrack{
 				Index: s.Index, Codec: s.CodecName, Width: s.Width, Height: s.Height,
-				Profile: s.Profile, PixelFmt: s.PixFmt, HDRFormat: hdrFormat(s.ColorTransfer, s.Profile),
+				Profile: s.Profile, PixelFmt: s.PixFmt,
+				HDRFormat: hdrFormat(s.ColorTransfer, s.Profile, s.CodecTag),
 			}
 		case "audio":
 			info.Audio = append(info.Audio, AudioTrack{
@@ -206,19 +208,28 @@ func primaryFormat(name string) string {
 	return name
 }
 
-// hdrFormat names the release's dynamic range from its transfer characteristic.
-// It is best-effort and deliberately shallow: distinguishing HDR10 from HDR10+
-// or Dolby Vision needs side-data ffprobe only reports with more flags, and
-// nothing consumes the distinction yet.
-func hdrFormat(transfer, profile string) string {
+// hdrFormat names the release's dynamic range.
+//
+// The codec tag is checked *first*, and that ordering is the point. Dolby Vision
+// profile 5 carries no HDR10 base layer, so its transfer characteristic is often
+// unset or misleading — judging by transfer alone reports it as SDR, the video
+// gets copied through, and the client renders its ICtCp data as BT.2020: the
+// purple-and-green picture. The `dvhe`/`dvh1`/`dvav`/`dva1` tags identify it
+// when nothing else does.
+func hdrFormat(transfer, profile, codecTag string) string {
+	tag := strings.ToLower(strings.TrimSpace(codecTag))
+	switch tag {
+	case "dvhe", "dvh1", "dvav", "dva1":
+		return "DolbyVision"
+	}
+	if strings.Contains(strings.ToLower(profile), "dolby vision") {
+		return "DolbyVision"
+	}
 	switch strings.ToLower(transfer) {
 	case "smpte2084":
 		return "HDR10"
 	case "arib-std-b67":
 		return "HLG"
-	}
-	if strings.Contains(strings.ToLower(profile), "dolby vision") {
-		return "DolbyVision"
 	}
 	return ""
 }

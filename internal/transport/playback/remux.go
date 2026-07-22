@@ -198,7 +198,9 @@ func serveRemuxed(w http.ResponseWriter, r *http.Request, rx *Remuxer, t ticket,
 func (p Plan) ffmpegArgs() []string {
 	args := []string{"-map", fmt.Sprintf("0:%d", p.VideoIndex)}
 	if p.Video == ActionEncode {
-		// Only reached when the client cannot decode the source video at all.
+		if vf := p.videoFilter(); vf != "" {
+			args = append(args, "-vf", vf)
+		}
 		// veryfast because a slower preset on a 4K source is not a trade a
 		// viewer waiting for a first frame would accept.
 		args = append(args, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20")
@@ -224,4 +226,39 @@ func (p Plan) ffmpegArgs() []string {
 	// command. They are resolved as separate tracks instead (ADR 0037).
 	args = append(args, "-sn")
 	return args
+}
+
+// videoFilter builds the scale and tone-map chain for an encoded video stream.
+//
+// Downscaling comes first, and deliberately: tone-mapping is per-pixel, so doing
+// it after a 4K-to-1080p reduction is roughly a quarter of the work for a result
+// nobody can tell apart in a browser window.
+//
+// The tone-map chain converts to linear light, maps into BT.709 with Hable, and
+// converts back — the standard sequence, spelled out rather than hidden behind a
+// preset because each step is doing something and a missing one shows up as
+// washed-out or oversaturated colour rather than an error.
+func (p Plan) videoFilter() string {
+	var parts []string
+	if p.MaxHeight > 0 {
+		// -2 keeps the width even, which h264 requires, and `min` leaves a
+		// source already below the cap untouched rather than upscaling it.
+		parts = append(parts, fmt.Sprintf("scale=-2:'min(ih,%d)'", p.MaxHeight))
+	}
+	if p.Tonemap {
+		parts = append(parts,
+			"zscale=t=linear:npl=100",
+			"format=gbrpf32le",
+			"zscale=p=bt709",
+			"tonemap=tonemap=hable:desat=0",
+			"zscale=t=bt709:m=bt709:r=tv",
+		)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	// yuv420p last: it is what every browser decoder expects, and the tone-map
+	// chain leaves the frames in a float format nothing else accepts.
+	parts = append(parts, "format=yuv420p")
+	return strings.Join(parts, ",")
 }

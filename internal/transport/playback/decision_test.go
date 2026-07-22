@@ -26,11 +26,25 @@ var theRealRelease = MediaInfo{
 	Subtitles: []SubtitleTrack{{Index: 5, Codec: "subrip", Language: "eng"}},
 }
 
+// sameReleaseInSDR is theRealRelease with the dynamic range removed.
+//
+// It exists because the copy-video case cannot be demonstrated on an HDR source
+// any more, and that is a correction rather than a test inconvenience: these
+// assertions used to run against the HDR fixture and pass, which means they were
+// asserting a copy that would have rendered with wrong colour. Tone-mapping is
+// the *only* honest answer for HDR on an SDR client, so the "copy the video"
+// case needs a source where copying is genuinely right.
+var sameReleaseInSDR = func() MediaInfo {
+	m := theRealRelease
+	m.Video.HDRFormat = ""
+	return m
+}()
+
 // TestDecideCopiesVideoAndEncodesOnlyTheAudio is the whole point of deciding per
 // stream. Re-encoding 32 GB of 4K HEVC to fix an audio track would not keep up
 // on a home server, and it is not necessary: Chrome decodes the video already.
 func TestDecideCopiesVideoAndEncodesOnlyTheAudio(t *testing.T) {
-	plan := Decide(theRealRelease, DefaultBrowserCodecs, nil)
+	plan := Decide(sameReleaseInSDR, DefaultBrowserCodecs, nil)
 
 	if plan.Video != ActionCopy {
 		t.Errorf("video = %q, want %q — the client decodes HEVC, so re-encoding it is wasted work", plan.Video, ActionCopy)
@@ -50,7 +64,7 @@ func TestDecideCopiesVideoAndEncodesOnlyTheAudio(t *testing.T) {
 // surfaced. Mapping 0:a:0 gives Hindi audio on an English film — a perfect
 // encode of the wrong language is still the wrong film.
 func TestDecideChoosesEnglishNotTheFirstTrack(t *testing.T) {
-	plan := Decide(theRealRelease, DefaultBrowserCodecs, nil)
+	plan := Decide(sameReleaseInSDR, DefaultBrowserCodecs, nil)
 
 	if plan.AudioLanguage != "eng" {
 		t.Fatalf("chose %q audio, want %q", plan.AudioLanguage, "eng")
@@ -131,7 +145,7 @@ func TestChooseAudioPrefersMoreChannelsWithinALanguage(t *testing.T) {
 // because a correct decision expressed as the wrong ffmpeg invocation is still
 // a silent film.
 func TestPlanArgsCopyVideoEncodeAudio(t *testing.T) {
-	args := Decide(theRealRelease, DefaultBrowserCodecs, nil).ffmpegArgs()
+	args := Decide(sameReleaseInSDR, DefaultBrowserCodecs, nil).ffmpegArgs()
 
 	if !hasPair(args, "-c:v", "copy") {
 		t.Errorf("args %v must copy video", args)
@@ -154,4 +168,78 @@ func hasPair(args []string, flag, value string) bool {
 		}
 	}
 	return false
+}
+
+// TestHDRVideoIsNeverCopiedToAnSDRClient is the purple-and-green bug, pinned.
+//
+// The client decodes HEVC, so the codec check passes and the earlier code copied
+// the stream straight through. A Dolby Vision profile 5 stream has no HDR10 base
+// layer, so the browser rendered its ICtCp data as BT.2020 — a picture that
+// looks broken rather than unsupported, which is the worse failure.
+func TestHDRVideoIsNeverCopiedToAnSDRClient(t *testing.T) {
+	dolbyVision := MediaInfo{
+		Container: "matroska",
+		Video:     VideoTrack{Index: 0, Codec: "hevc", Width: 3840, Height: 2160, HDRFormat: "DolbyVision"},
+		Audio:     []AudioTrack{{Index: 1, Codec: "aac", Language: "eng"}},
+	}
+
+	plan := Decide(dolbyVision, DefaultBrowserCodecs, nil)
+
+	if plan.Video != ActionEncode {
+		t.Fatalf("video = %q, want %q — a decodable codec is not the same as a renderable picture", plan.Video, ActionEncode)
+	}
+	if !plan.Tonemap {
+		t.Error("an HDR source encoded for an SDR client must be tone-mapped, or the colour is still wrong")
+	}
+	if plan.DirectPlay {
+		t.Error("DirectPlay must be false: relaying this is what produced the purple-and-green picture")
+	}
+	// The audio was fine and must not be dragged into the re-encode.
+	if plan.Audio != ActionCopy {
+		t.Errorf("audio = %q, want %q — it was already decodable", plan.Audio, ActionCopy)
+	}
+}
+
+// TestHDRIsCopiedToAClientThatCanRenderIt — the same source must not be
+// needlessly re-encoded for a client that handles HDR, which is the whole
+// reason this is a client property rather than a blanket rule.
+func TestHDRIsCopiedToAClientThatCanRenderIt(t *testing.T) {
+	hdrClient := DefaultBrowserCodecs
+	hdrClient.HDR = true
+
+	plan := Decide(MediaInfo{
+		Video: VideoTrack{Index: 0, Codec: "hevc", Height: 2160, HDRFormat: "HDR10"},
+		Audio: []AudioTrack{{Index: 1, Codec: "aac", Language: "eng"}},
+	}, hdrClient, nil)
+
+	if plan.Video != ActionCopy || plan.Tonemap {
+		t.Errorf("video = %q tonemap=%v, want a plain copy for an HDR-capable client", plan.Video, plan.Tonemap)
+	}
+}
+
+// TestTonemapFilterDownscalesBeforeMapping — tone-mapping is per-pixel, so doing
+// it after a 4K-to-1080p reduction is about a quarter of the work. Order matters
+// enough to assert.
+func TestTonemapFilterDownscalesBeforeMapping(t *testing.T) {
+	vf := Plan{Video: ActionEncode, Tonemap: true, MaxHeight: 1080}.videoFilter()
+
+	scale := strings.Index(vf, "scale=-2")
+	tone := strings.Index(vf, "tonemap=")
+	if scale < 0 || tone < 0 {
+		t.Fatalf("filter chain missing scale or tonemap: %q", vf)
+	}
+	if scale > tone {
+		t.Errorf("scale must precede tonemap (four times the pixels otherwise): %q", vf)
+	}
+	if !strings.HasSuffix(vf, "format=yuv420p") {
+		t.Errorf("chain must end in yuv420p or the browser cannot decode it: %q", vf)
+	}
+}
+
+// TestNoFilterWhenCopying — a copied stream takes no filter chain at all;
+// passing one to ffmpeg alongside `-c:v copy` is an error, not a no-op.
+func TestNoFilterWhenCopying(t *testing.T) {
+	if vf := (Plan{Video: ActionCopy}).videoFilter(); vf != "" {
+		t.Errorf("videoFilter() = %q, want empty for a copy", vf)
+	}
 }
