@@ -52,7 +52,12 @@ type ticket struct {
 	// today's handler enforces only the expiry, which is stated plainly here
 	// rather than described as binding it does not do.
 	Session string `json:"s,omitempty"`
-	Expires int64  `json:"e"`
+	// Remux says the container has to be rewritten before a browser can play
+	// it. The decision is made here, at mint time, with the server-side
+	// knowledge that grows into ADR 0048's profile-driven selection — not
+	// re-derived on every range request.
+	Remux   bool  `json:"r,omitempty"`
+	Expires int64 `json:"e"`
 }
 
 // Sealer mints and opens playback tickets. Its key is process-scoped, like the
@@ -83,11 +88,12 @@ var ErrInvalidTicket = errors.New("playback: invalid ticket")
 
 // Mint seals an upstream location into an opaque ticket string, safe to put in
 // a URL path.
-func (s *Sealer) Mint(url string, headers map[string]string, session string) (string, error) {
+func (s *Sealer) Mint(url string, headers map[string]string, session string, remux bool) (string, error) {
 	payload, err := json.Marshal(ticket{
 		URL:     url,
 		Headers: headers,
 		Session: session,
+		Remux:   remux,
 		Expires: s.now().Add(TicketTTL).Unix(),
 	})
 	if err != nil {
@@ -157,7 +163,7 @@ var relayedResponseHeaders = []string{
 //
 // Pass Client() in production; a test may pass a plain client to reach a
 // loopback fixture, exactly as the artwork proxy does.
-func Handler(sealer *Sealer, client *http.Client) http.Handler {
+func Handler(sealer *Sealer, client *http.Client, remuxer *Remuxer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
@@ -173,6 +179,18 @@ func Handler(sealer *Sealer, client *http.Client) http.Handler {
 		t, err := sealer.open(raw)
 		if err != nil {
 			http.Error(w, "invalid playback request", http.StatusForbidden)
+			return
+		}
+
+		// A container MSE cannot accept goes through ffmpeg instead of being
+		// relayed. The branch is here rather than in the module because a remux
+		// is a transform on the serving side, and the module never serves.
+		if t.Remux {
+			if !remuxer.Available() {
+				http.Error(w, "this release needs remuxing and ffmpeg is not installed", http.StatusNotImplemented)
+				return
+			}
+			serveRemuxed(w, r, remuxer, t)
 			return
 		}
 

@@ -279,6 +279,17 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build playback sealer failed: %w", err)
 	}
+	// Stream-copy remux (ADR 0048). MSE takes only fMP4/WebM, so a Matroska
+	// release is unplayable in a browser whatever codec is inside; rewriting the
+	// container costs almost nothing since the streams are copied, not encoded.
+	// ffmpeg is optional — without it the Platform still boots and direct-plays,
+	// and a release needing a remux says so rather than failing obscurely.
+	playbackRemuxer := playback.NewRemuxer()
+	if playbackRemuxer.Available() {
+		fmt.Println("mosaic-platform: ffmpeg found; stream-copy remux enabled")
+	} else {
+		fmt.Println("mosaic-platform: ffmpeg not found; playback is direct-play only (Matroska releases will not play in a browser)")
+	}
 
 	schema, err := graphqltransport.NewSchema(svc, artworkSigner.Rewrite)
 	if err != nil {
@@ -351,7 +362,7 @@ func run() error {
 	apiMux := http.NewServeMux()
 	apiMux.Handle("/graphql", graphqltransport.Handler(schema))
 	apiMux.Handle("/artwork", artwork.Handler(artworkSigner, artwork.GuardedClient()))
-	apiMux.Handle("/playback/", playback.Handler(playbackSealer, playback.Client()))
+	apiMux.Handle("/playback/", playback.Handler(playbackSealer, playback.Client(), playbackRemuxer))
 	apiMux.Handle(sessionPath, sessionConnect)
 	// Serve the API over h2c (cleartext HTTP/2) so the two session lanes —
 	// concurrent unary intents and the long-lived Subscribe stream — multiplex

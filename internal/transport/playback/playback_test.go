@@ -29,7 +29,7 @@ func TestTicketRoundTripAndTamper(t *testing.T) {
 	s := newTestSealer(t)
 	const upstream = "https://cdn.example/movie.mkv?token=supersecret"
 
-	raw, err := s.Mint(upstream, map[string]string{"Authorization": "Bearer abc"}, "session-1")
+	raw, err := s.Mint(upstream, map[string]string{"Authorization": "Bearer abc"}, "session-1", false)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestTicketRoundTripAndTamper(t *testing.T) {
 
 func TestExpiredTicketDoesNotOpen(t *testing.T) {
 	s := newTestSealer(t)
-	raw, err := s.Mint("https://cdn.example/movie.mp4", nil, "session-1")
+	raw, err := s.Mint("https://cdn.example/movie.mp4", nil, "session-1", false)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -104,14 +104,14 @@ func TestHandlerRelaysRangeRequests(t *testing.T) {
 	defer upstream.Close()
 
 	s := newTestSealer(t)
-	raw, err := s.Mint(upstream.URL+"/movie.mp4", map[string]string{"Authorization": "Bearer abc"}, "session-1")
+	raw, err := s.Mint(upstream.URL+"/movie.mp4", map[string]string{"Authorization": "Bearer abc"}, "session-1", false)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
 
 	// A plain client, so the fixture on loopback is reachable — the guarded
 	// dialer in Client() would (correctly) refuse it.
-	h := Handler(s, upstream.Client())
+	h := Handler(s, upstream.Client(), NewRemuxerAt(""))
 
 	req := httptest.NewRequest(http.MethodGet, "/playback/"+raw, nil)
 	req.Header.Set("Range", "bytes=4-9")
@@ -142,7 +142,7 @@ func TestHandlerRelaysRangeRequests(t *testing.T) {
 // origin would fetch any URL anyone asked it to.
 func TestHandlerRejectsBadTickets(t *testing.T) {
 	s := newTestSealer(t)
-	h := Handler(s, http.DefaultClient)
+	h := Handler(s, http.DefaultClient, NewRemuxerAt(""))
 
 	for _, path := range []string{"/playback/", "/playback/garbage", "/playback/a/b"} {
 		rec := httptest.NewRecorder()
@@ -153,7 +153,7 @@ func TestHandlerRejectsBadTickets(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	raw, _ := s.Mint("https://cdn.example/x.mp4", nil, "s")
+	raw, _ := s.Mint("https://cdn.example/x.mp4", nil, "s", false)
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/playback/"+raw, nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
