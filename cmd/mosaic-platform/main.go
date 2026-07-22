@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	remoteplayback "github.com/mosaic-media/module-remote-playback"
 	stremio "github.com/mosaic-media/module-stremio-addons"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -93,16 +94,21 @@ func adminPermissions() []domain.Permission {
 }
 
 // registerCapabilities wires the optional-module capabilities compiled into
-// this binary into the registry the Platform routes ImportContent to. It is
-// the one place that names concrete modules — the composition-root equivalent
-// of the Build Pipeline's generated imports (ADR 0007). Modules land here as
-// they are added; the Stremio addon-source module is the first.
+// this binary into the registry the Platform resolves through. It is the one
+// place that names concrete modules — the composition-root equivalent of the
+// Build Pipeline's generated imports (ADR 0007). Modules land here as they are
+// added; the Stremio addon-source module is the first.
 func registerCapabilities(reg *app.CapabilityRegistry) {
 	// The Stremio addon-source module. It is always registered: the addons it
 	// sources from are user-managed settings (ADR 0021), set at runtime through
 	// configureModule rather than baked in at composition, so the module is
 	// available even before any addon is configured.
 	reg.Register(stremio.New(nil))
+	// The remote playback module — the first *consumer* capability (ADR 0045).
+	// Registering it is what stops the library being inert: the Stremio module
+	// above snapshots a stream location at import, and this is what can turn
+	// that location back into playable bytes.
+	reg.Register(remoteplayback.New())
 }
 
 func main() {
