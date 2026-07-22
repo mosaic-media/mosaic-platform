@@ -1,0 +1,32 @@
+# Development image for the Mosaic Platform.
+#
+# It is deliberately NOT a production build: source is bind-mounted and the
+# binary is run with `go run`, so an edit is a restart rather than an image
+# rebuild. A release image is a separate, later concern.
+#
+# The reason this exists rather than running the Platform on the host is
+# **ffmpeg**. Playback needs ffprobe to decide what a release actually is, and
+# ffmpeg to rewrite a container or re-encode an audio track (ADR 0050); without
+# them the Platform boots in direct-play-only mode and most real content will not
+# play. Putting them in the image makes that a property of the environment rather
+# than a thing every developer has to remember to install.
+FROM golang:1.25-bookworm
+
+# ffmpeg brings ffprobe with it. No-install-recommends keeps the layer from
+# pulling in an X stack that a headless server has no use for.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && ffmpeg -version | head -n 1 \
+ && ffprobe -version | head -n 1
+
+WORKDIR /src/platform
+
+# The module cache is a named volume in compose, so a restart does not re-download
+# the world. Nothing is COPYed: compose bind-mounts the sibling repositories,
+# which is what lets the local `replace` for module-remote-playback resolve.
+ENV GOFLAGS=-buildvcs=false
+
+EXPOSE 8080 8081
+
+CMD ["go", "run", "./cmd/mosaic-platform"]

@@ -11,3 +11,6 @@ logs/
 .env
 .env.*
 !.env.example
+
+# Process ids recorded by scripts/dev.ps1 so it can stop what it started.
+.dev-pids
