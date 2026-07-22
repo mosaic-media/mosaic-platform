@@ -6,7 +6,6 @@ package screens
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	sdui "github.com/mosaic-media/sdui/sdui"
@@ -22,6 +21,9 @@ const (
 	// homeUpNextItems bounds the "Up next" filmstrip docked on the hero floor —
 	// the items neighbouring the featured one, drawn from the same first catalog.
 	homeUpNextItems = 8
+	// homeHeroSlides bounds the hero carousel: the top item of each of the first
+	// few non-empty catalogs, auto-advancing behind the content sheet.
+	homeHeroSlides = 5
 )
 
 // homeScreen is the default landing surface: a hero over rows of the enabled
@@ -71,27 +73,33 @@ func (s *Service) homeScreen(ctx context.Context, caller v1.Caller) (sdui.Node, 
 	// spanning the Screen's full-bleed slot with an "Up next" filmstrip of its
 	// neighbours docked on its floor; then a carousel row per non-empty catalog.
 	rows := make([]ui.El, 0, len(catalogs)+1)
-	var hero, upNext ui.El
+	type heroPick struct {
+		item   v1.CatalogItem
+		kicker string
+	}
+	var picks []heroPick
+	var upNext ui.El
 	for i, c := range catalogs {
 		items := itemsByCatalog[i].Items
 		if len(items) == 0 {
 			continue
 		}
-		if hero == nil {
-			if h := s.heroFromItem(ctx, caller, items[0], c.Catalog.Name); h != nil {
-				hero = ui.Slot("bleed", h)
-				// "Trending now" — the items neighbouring the featured one — leads
-				// the library as a rail of glass MediaTiles, the showcase row for
-				// the acrylic material (the edge light tracks the hero art across
-				// the row). Library rows below stay plain PosterCards.
-				upCards := make([]ui.El, 0, homeUpNextItems)
-				for j := 1; j < len(items) && j <= homeUpNextItems; j++ {
-					it := items[j]
-					upCards = append(upCards, s.mediaTile(it.Ref, it.Title, it.Year, it.Poster, it.InLibrary))
-				}
-				if len(upCards) > 0 {
-					upNext = ui.Section("Trending now", ui.Carousel(upCards...))
-				}
+		// The hero carousel takes the top item of each of the first few catalogs.
+		if len(picks) < homeHeroSlides {
+			picks = append(picks, heroPick{item: items[0], kicker: c.Catalog.Name})
+		}
+		if upNext == nil {
+			// "Trending now" — the items neighbouring the first featured one — leads
+			// the library as a rail of glass MediaTiles, the showcase row for the
+			// acrylic material (the edge light tracks the hero art across the row).
+			// Library rows below stay plain PosterCards.
+			upCards := make([]ui.El, 0, homeUpNextItems)
+			for j := 1; j < len(items) && j <= homeUpNextItems; j++ {
+				it := items[j]
+				upCards = append(upCards, s.mediaTile(it.Ref, it.Title, it.Year, it.Poster, it.InLibrary))
+			}
+			if len(upCards) > 0 {
+				upNext = ui.Section("Trending now", ui.Carousel(upCards...))
 			}
 		}
 		cards := make([]ui.El, 0, homeMaxRowItems)
@@ -108,18 +116,57 @@ func (s *Service) homeScreen(ctx context.Context, caller v1.Caller) (sdui.Node, 
 			"Nothing to show yet — try adding an addon in Settings")).Build(), nil
 	}
 
-	// The hero fills the Screen's full-bleed slot (edge to edge, above the
-	// gutter-padded library rows), then "Up next", then a row per catalog. When
-	// metadata enrichment failed there is no hero and the rows stand alone.
-	screenEls := make([]ui.El, 0, len(rows)+2)
-	if hero != nil {
-		screenEls = append(screenEls, hero)
+	// Enrich the featured picks into hero banners concurrently — each is a further
+	// metadata round-trip (backdrop/logo). Order is preserved; a pick whose
+	// enrichment fails drops out.
+	slides := make([]ui.El, len(picks))
+	var hg sync.WaitGroup
+	for i, p := range picks {
+		hg.Add(1)
+		go func() {
+			defer hg.Done()
+			if h := s.heroFromItem(ctx, caller, p.item, p.kicker); h != nil {
+				slides[i] = h
+			}
+		}()
 	}
+	hg.Wait()
+	heroSlides := make([]ui.El, 0, len(slides))
+	for _, h := range slides {
+		if h != nil {
+			heroSlides = append(heroSlides, h)
+		}
+	}
+
+	// The home is a cinematic backdrop the content rides over. A Rotator auto-
+	// advances the hero slides (mostly artwork — no pills/overview/buttons) and is
+	// `sticky`, so it stays put while the library, carried on a glass "sheet",
+	// scrolls UP over it: the sheet's acrylic top edge catches the active hero's
+	// light on the way past. Both live in the Screen's edge-to-edge `bleed` slot
+	// (the sheet owns its own gutter), so the padded body collapses ($childCount 0).
+	// When enrichment failed for every pick there's no hero; the sheet stands alone.
+	sheetEls := make([]ui.El, 0, len(rows)+2)
+	sheetEls = append(sheetEls, ui.Prop("style", map[string]any{
+		"glass": true, "bg": "bg", "radius": "xl",
+		"direction": "column", "gap": 8,
+		"px": "gutter", "pt": 8, "pb": 9,
+		"position": "relative", "z": "raised",
+	}))
 	if upNext != nil {
-		screenEls = append(screenEls, upNext)
+		sheetEls = append(sheetEls, upNext)
 	}
-	screenEls = append(screenEls, rows...)
-	return ui.Screen(screenEls...).Build(), nil
+	sheetEls = append(sheetEls, rows...)
+	sheet := ui.Component("Box", sheetEls...)
+
+	bleed := make([]ui.El, 0, 2)
+	if len(heroSlides) > 0 {
+		rotEls := make([]ui.El, 0, len(heroSlides)+1)
+		rotEls = append(rotEls, ui.Prop("interval", 6000))
+		rotEls = append(rotEls, heroSlides...)
+		bleed = append(bleed, ui.Component("Rotator", rotEls...))
+	}
+	bleed = append(bleed, sheet)
+	return ui.Screen(ui.Slot("bleed", bleed...)).Build(), nil
 }
 
 // heroFromItem builds the home's featured banner from a catalog item, enriching
@@ -138,29 +185,13 @@ func (s *Service) heroFromItem(ctx context.Context, caller v1.Caller, it v1.Cata
 		title = it.Title
 	}
 
-	var pills []string
-	if y := yearLabel(m.Year); y != "" {
-		pills = append(pills, y)
-	}
-	if m.Rating > 0 {
-		pills = append(pills, fmt.Sprintf("★ %.1f", m.Rating))
-	}
-
-	ref := map[string]any{paramRef: refInput(it.Ref)}
+	// The home hero is artwork first: just the catalog kicker + the title (or logo)
+	// over the backdrop — no overview, no meta pills, no buttons. That "detail page"
+	// chrome belongs on the detail screen; here the poster is the hero.
 	return ui.Hero(title,
 		ui.Prop("variant", "feature"),
 		ui.When(kicker != "", ui.Prop("kicker", kicker)),
 		ui.Backdrop(s.art(m.Backdrop)),
 		ui.When(m.Logo != "", ui.Logo(s.art(m.Logo))),
-		ui.When(m.Overview != "", ui.Overview(m.Overview)),
-		ui.When(len(pills) > 0, ui.Meta(pills...)),
-		ui.Actions(
-			ui.Button("View", "primary",
-				ui.OnTap(ui.Navigate(screenDetail, ref))),
-			// The featured item is browsable but not yet in the library — offer the
-			// same add affordance the detail screen carries (ADR 0028).
-			ui.When(!it.InLibrary, ui.Button("Add to library", "secondary",
-				ui.OnTap(ui.Invoke(importContentMutation, ref)))),
-		),
 	)
 }

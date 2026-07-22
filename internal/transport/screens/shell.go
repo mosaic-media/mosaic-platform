@@ -18,6 +18,7 @@ func (s *Service) shellScreen() (sdui.Node, error) {
 		ui.Title("Mosaic"),
 		ui.Slot("nav",
 			navItem("Home", "home", screenHome),
+			navItem("Search", "search", screenSearch),
 			navItem("Collections", "list", screenCollections),
 			navItem("Settings", "settings", screenSettings),
 		),
@@ -27,15 +28,16 @@ func (s *Service) shellScreen() (sdui.Node, error) {
 		ui.Slot("topbar",
 			ui.Component("SearchBar", ui.Prop("placeholder", "Search for anime, movies, shows…")),
 		),
-		// Desktop account cluster (right of the search): a Collections link and an
-		// avatar menu holding Settings. Home is the brand; on mobile these live in
-		// the bottom tab bar (the `nav` slot) instead, so this cluster is hidden.
+		// Desktop right cluster: just the avatar menu, so the bar stays clean —
+		// brand (= Home) · centred search · avatar. Home is the brand; Collections
+		// and Settings live in the menu. On mobile these are the bottom tab bar
+		// (the `nav` slot), so this cluster is hidden.
 		ui.Slot("account",
-			navItem("Collections", "list", screenCollections),
 			ui.Component("Menu",
 				ui.Prop("initial", "A"),
 				ui.Prop("label", "Account"),
 				ui.Prop("items", []any{
+					map[string]any{"label": "Collections", "icon": "list", "action": ui.Navigate(screenCollections, nil)},
 					map[string]any{"label": "Settings", "icon": "settings", "action": ui.Navigate(screenSettings, nil)},
 				}),
 			),

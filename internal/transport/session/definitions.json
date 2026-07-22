@@ -25,12 +25,15 @@
         {
           "type": "Box",
           "props": {
+            "$if": {
+              "$bind": "$childCount"
+            },
             "style": {
               "direction": "column",
-              "gap": 6,
+              "gap": 8,
               "px": "gutter",
-              "pt": 6,
-              "pb": 8
+              "pt": 9,
+              "pb": 9
             }
           },
           "children": [
@@ -101,6 +104,7 @@
       "type": "Box",
       "props": {
         "style": {
+          "position": "relative",
           "direction": "column",
           "height": "screen"
         }
@@ -110,14 +114,34 @@
           "type": "Box",
           "props": {
             "style": {
+              "direction": "column",
+              "grow": true,
+              "overflowY": "auto"
+            }
+          },
+          "children": [
+            {
+              "type": "Outlet",
+              "props": {
+                "name": "content"
+              }
+            }
+          ]
+        },
+        {
+          "type": "Box",
+          "props": {
+            "style": {
+              "position": "absolute",
+              "top": 0,
+              "left": 0,
+              "right": 0,
+              "z": "overlay",
               "direction": "row",
               "align": "center",
               "gap": 4,
               "px": "gutter",
-              "py": 3,
-              "wrap": true,
-              "bg": "surface",
-              "glass": true
+              "py": 3
             }
           },
           "children": [
@@ -176,7 +200,8 @@
                   "align": "center",
                   "justify": "center",
                   "grow": true,
-                  "minWidth": 280
+                  "minWidth": 180,
+                  "kind": "top-search"
                 }
               },
               "children": [
@@ -210,24 +235,6 @@
           ]
         },
         {
-          "type": "Box",
-          "props": {
-            "style": {
-              "direction": "column",
-              "grow": true,
-              "overflowY": "auto"
-            }
-          },
-          "children": [
-            {
-              "type": "Outlet",
-              "props": {
-                "name": "content"
-              }
-            }
-          ]
-        },
-        {
           "type": "NavBar",
           "children": [
             {
@@ -250,7 +257,7 @@
       "type": "Box",
       "props": {
         "style": {
-          "gap": 4
+          "gap": 5
         }
       },
       "children": [
@@ -396,7 +403,7 @@
   {
     "name": "Carousel",
     "params": {
-      "itemWidth": 182
+      "itemWidth": 210
     },
     "template": {
       "type": "Box",
@@ -407,7 +414,7 @@
           "gridAutoColumns": {
             "$bind": "itemWidth"
           },
-          "gap": 5,
+          "gap": 6,
           "overflowX": "auto",
           "snap": "x",
           "py": 2

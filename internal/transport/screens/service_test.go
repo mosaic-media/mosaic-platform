@@ -157,11 +157,11 @@ func TestSearchScreenEmptyQueryPromptsWithNoBackendCall(t *testing.T) {
 	if node.Type != sdui.TypeScreen {
 		t.Fatalf("root type = %q, want Screen", node.Type)
 	}
-	// The search screen carries no SearchBar of its own — the always-present
-	// top-bar search holds the query (ADR 0032). An empty query renders a prompt
-	// and hits no backend.
-	if _, ok := find(node, sdui.TypeSearchBar); ok {
-		t.Fatal("search screen must not carry its own SearchBar; the top bar holds the query")
+	// The search screen carries its OWN SearchBar (shown on mobile, where search
+	// is a tab; desktop hides it and uses the top-bar search). An empty query
+	// renders a prompt and hits no backend.
+	if _, ok := find(node, sdui.TypeSearchBar); !ok {
+		t.Fatal("search screen must carry its own SearchBar (the mobile search field)")
 	}
 	if _, ok := find(node, sdui.TypeEmptyState); !ok {
 		t.Fatal("an empty query must render an EmptyState prompt")
