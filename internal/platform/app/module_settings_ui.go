@@ -58,7 +58,10 @@ func (s *Service) ModuleSettingsUI(ctx context.Context, query ModuleSettingsUIQu
 		return ModuleSettingsUIResult{}, err
 	}
 
+	ctx, span := moduleSpan(ctx, query.ModuleID, "settings_ui")
 	resp, err := provider.SettingsUI(ctx, v1.SettingsUIRequest{Caller: query.Caller, Settings: settings})
+	failSpan(span, err)
+	span.End()
 	if err != nil {
 		return ModuleSettingsUIResult{}, contracts.WrapError(contracts.Unavailable, "module settings UI", err)
 	}

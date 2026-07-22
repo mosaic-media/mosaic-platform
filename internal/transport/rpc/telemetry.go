@@ -46,8 +46,17 @@ type telemetryInterceptor struct{ component string }
 func (i *telemetryInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 		ctx = i.start(ctx, req.Header().Get(telemetry.TraceparentHeader))
-		lg := telemetry.From(ctx)
 
+		// The root span of the trace on this side of the wire. Everything the
+		// call reaches — the command handler, its transaction, the module it
+		// invokes, that module's HTTP calls — nests inside this one, which is
+		// what turns "the intent took nine seconds" into a shape that says
+		// where the nine seconds went (ADR 0055).
+		ctx, span := telemetry.Start(ctx, req.Spec().Procedure,
+			telemetry.String("rpc.system", "connect"))
+		defer span.End()
+
+		lg := telemetry.From(ctx)
 		started := time.Now()
 		res, err := next(ctx, req)
 		fields := []telemetry.Field{
@@ -58,8 +67,10 @@ func (i *telemetryInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFu
 			// The Connect code is a closed vocabulary and safe verbatim; the
 			// error text is not necessarily, but it originates in the Platform
 			// rather than a user, so Err's standing caveat applies and no more.
+			code := connect.CodeOf(err).String()
+			span.Fail(code, err)
 			lg.Error("call failed", append(fields,
-				telemetry.String("code", connect.CodeOf(err).String()),
+				telemetry.String("code", code),
 				telemetry.Err(err))...)
 		} else {
 			lg.Info("call", fields...)
@@ -72,6 +83,17 @@ func (i *telemetryInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFu
 func (i *telemetryInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
 		ctx = i.start(ctx, conn.RequestHeader().Get(telemetry.TraceparentHeader))
+
+		// One span for the whole stream. It will be long — hours — and that is
+		// honest rather than a defect: the span says how long the client stayed
+		// connected, which is the question about a stream worth asking. The
+		// work pushed *over* it belongs to the traces of the intents that
+		// caused it, not to this one.
+		ctx, span := telemetry.Start(ctx, conn.Spec().Procedure,
+			telemetry.String("rpc.system", "connect"),
+			telemetry.String("rpc.kind", "server_stream"))
+		defer span.End()
+
 		lg := telemetry.From(ctx).With(telemetry.String("procedure", conn.Spec().Procedure))
 
 		started := time.Now()
@@ -79,8 +101,10 @@ func (i *telemetryInterceptor) WrapStreamingHandler(next connect.StreamingHandle
 		err := next(ctx, conn)
 		elapsed := telemetry.Duration("elapsed", time.Since(started).Round(time.Millisecond))
 		if err != nil {
+			code := connect.CodeOf(err).String()
+			span.Fail(code, err)
 			lg.Error("stream failed", elapsed,
-				telemetry.String("code", connect.CodeOf(err).String()),
+				telemetry.String("code", code),
 				telemetry.Err(err))
 		} else {
 			lg.Info("stream ended", elapsed)

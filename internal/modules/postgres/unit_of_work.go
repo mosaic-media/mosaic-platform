@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mosaic-media/platform/internal/platform/contracts"
+	"github.com/mosaic-media/platform/internal/platform/telemetry"
 )
 
 // UnitOfWork is the PostgreSQL implementation of contracts.UnitOfWork. It
@@ -32,9 +33,23 @@ func NewUnitOfWork(pool *pgxpool.Pool) *UnitOfWork {
 // Any error from fn rolls the whole transaction back, so a partial write is
 // never committed and never observable by another transaction.
 func (u *UnitOfWork) WithinTx(ctx context.Context, fn func(ctx context.Context, tx contracts.Tx) error) error {
+	// One span per transaction (ADR 0055, seam 5), and the grouping layer of
+	// the whole waterfall: the per-statement spans the pool's tracer emits
+	// (seam 6) nest inside this one, so a trace shows "this write took 40ms,
+	// and here are the six statements it took to do it" rather than six
+	// statements floating loose beside the handler that issued them.
+	//
+	// It also makes rollback visible. A transaction that rolled back is
+	// otherwise indistinguishable from one that committed, and "the write
+	// silently did not happen" is among the harder failures to chase.
+	ctx, span := telemetry.Start(ctx, "tx", telemetry.String("db.system", "postgresql"))
+	defer span.End()
+
 	pgxTx, err := u.pool.Begin(ctx)
 	if err != nil {
-		return mapError("begin transaction", err)
+		wrapped := mapError("begin transaction", err)
+		span.Fail(string(contracts.CategoryOf(wrapped)), wrapped)
+		return wrapped
 	}
 
 	// Rollback is a no-op once Commit has succeeded; if fn panics or returns
@@ -49,13 +64,19 @@ func (u *UnitOfWork) WithinTx(ctx context.Context, fn func(ctx context.Context, 
 	if err := fn(ctx, &tx{q: pgxTx}); err != nil {
 		// fn's error is already a Platform error (the stores mapped it); do
 		// not re-wrap. The deferred rollback discards the partial work.
+		span.SetAttributes(telemetry.String("db.outcome", "rollback"))
+		span.Fail(string(contracts.CategoryOf(err)), err)
 		return err
 	}
 
 	if err := pgxTx.Commit(ctx); err != nil {
-		return mapError("commit transaction", err)
+		wrapped := mapError("commit transaction", err)
+		span.SetAttributes(telemetry.String("db.outcome", "rollback"))
+		span.Fail(string(contracts.CategoryOf(wrapped)), wrapped)
+		return wrapped
 	}
 	committed = true
+	span.SetAttributes(telemetry.String("db.outcome", "commit"))
 	return nil
 }
 

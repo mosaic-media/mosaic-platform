@@ -69,7 +69,10 @@ func (s *Service) PreviewContent(ctx context.Context, q PreviewContentQuery) (Pr
 	if err != nil {
 		return PreviewContentResult{}, err
 	}
+	ctx, span := moduleSpan(ctx, q.Ref.Provider, "metadata")
 	meta, err := provider.Metadata(ctx, v1.MetadataRequest{Caller: q.Caller, Settings: settings, Ref: q.Ref})
+	failSpan(span, err)
+	span.End()
 	if err != nil {
 		return PreviewContentResult{}, contracts.WrapError(contracts.Unavailable, "preview content", err)
 	}

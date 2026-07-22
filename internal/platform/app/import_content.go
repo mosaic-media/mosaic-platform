@@ -85,9 +85,12 @@ func (s *Service) ImportContent(ctx context.Context, cmd ImportContentCommand) (
 
 	// 6. invoke it, forwarding the caller so it acts as the invoking user and
 	// passing the Service as the ContentService it drives.
+	ctx, span := moduleSpan(ctx, cmd.Ref.Provider, "import")
 	result, err := capability.Import(ctx, s, v1.ImportRequest{
 		Caller: cmd.Caller, Ref: cmd.Ref, Settings: settings,
 	})
+	failSpan(span, err)
+	span.End()
 	if err != nil {
 		return v1.ImportResult{}, err
 	}

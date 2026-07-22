@@ -5,6 +5,7 @@
 package telemetry
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -63,15 +64,14 @@ func instrument(component string, next http.Handler, resolveRoute func(*http.Req
 			w.Header().Set(TraceIDHeader, tc.TraceIDString())
 		}
 
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		started := time.Now()
-		next.ServeHTTP(rec, r.WithContext(ctx))
-
 		// The route pattern, never r.URL.Path. A playback path carries a sealed
 		// ticket and an artwork path a signed URL — both credential-bearing, and
 		// both would be written verbatim by the obvious version of this line.
 		// The pattern is what was matched, which is what anyone reading this
 		// actually wants, and it carries nothing.
+		//
+		// Resolved before the handler runs so it can name the span, which has
+		// to be named at Start rather than at End.
 		route := r.Pattern
 		if route == "" && resolveRoute != nil {
 			route = resolveRoute(r)
@@ -79,6 +79,24 @@ func instrument(component string, next http.Handler, resolveRoute func(*http.Req
 		if route == "" {
 			route = component
 		}
+
+		ctx, span := Start(ctx, r.Method+" "+route,
+			String("http.method", r.Method),
+			String("http.route", route))
+		defer span.End()
+
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		started := time.Now()
+		next.ServeHTTP(rec, r.WithContext(ctx))
+
+		span.SetAttributes(Int("http.status", rec.status))
+		if rec.status >= 500 {
+			// Only 5xx marks the span failed. A 404 or a 401 is the surface
+			// working correctly, and colouring those as errors would make the
+			// failure view useless on the two paths that produce them most.
+			span.Fail("", errStatus(rec.status))
+		}
+
 		From(ctx).Info("http request",
 			String("method", r.Method),
 			String("route", route),
@@ -120,4 +138,11 @@ func (s *statusRecorder) Flush() {
 	if f, ok := s.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// errStatus renders a 5xx as an error for a span's failure record. The handler
+// already wrote whatever it wrote; this exists only so the span carries some
+// reason rather than an empty one.
+func errStatus(status int) error {
+	return fmt.Errorf("http status %d", status)
 }

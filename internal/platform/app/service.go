@@ -130,13 +130,35 @@ func (s *Service) authenticateCaller(ctx context.Context, caller v1.Caller) (dom
 // guarantee depends on: every command and query calls this before opening
 // a UnitOfWork or reading state.
 func (s *Service) authorize(ctx context.Context, subject policy.Subject, action policy.Action, resource policy.Resource, policyContext policy.PolicyContext) error {
+	// The one point every command and query passes through, so it is where the
+	// *operation* gets named in a trace (ADR 0055, seam 4). A Connect span says
+	// "Invoke"; this says which action Invoke dispatched to, which is the
+	// difference between knowing a request happened and knowing what it did.
+	//
+	// This is the cheap half of seam 4. It does not bracket the handler's full
+	// duration — that would mean a call at the top of each of twenty handlers —
+	// but the expensive parts of a handler are already spanned beneath it: the
+	// transaction (seam 5), its statements (seam 6) and any module it invokes
+	// (seam 8). What remains unattributed is handler arithmetic.
+	ctx, span := telemetry.Start(ctx, "authorize "+string(action),
+		telemetry.String("action", string(action)),
+		telemetry.String("resource", resource.Type))
+	defer span.End()
+
 	decision, err := s.policy.Authorize(ctx, subject, action, resource, policyContext)
 	if err != nil {
-		return contracts.WrapError(contracts.Internal, "evaluate policy", err)
+		wrapped := contracts.WrapError(contracts.Internal, "evaluate policy", err)
+		span.Fail(string(contracts.Internal), wrapped)
+		return wrapped
 	}
 	if !decision.Allowed {
 		s.publishAuditEvent(ctx, "authorization.denied", []byte(string(action)), string(subject.UserID))
-		return contracts.NewError(contracts.PermissionDenied, decision.Reason)
+		denied := contracts.NewError(contracts.PermissionDenied, decision.Reason)
+		// A denial is a real outcome worth finding in a trace, not an
+		// exceptional one — it is the single most useful span when someone
+		// reports that a button does nothing.
+		span.Fail(string(contracts.PermissionDenied), denied)
+		return denied
 	}
 	return nil
 }

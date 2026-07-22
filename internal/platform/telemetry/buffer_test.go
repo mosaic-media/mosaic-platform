@@ -25,7 +25,7 @@ type recordingWriter struct {
 	fail  bool
 }
 
-func (w *recordingWriter) WriteRecords(_ context.Context, records []telemetry.Record) error {
+func (w *recordingWriter) WriteBatch(_ context.Context, records []telemetry.Record) error {
 	if w.block != nil {
 		<-w.block
 	}
@@ -61,7 +61,7 @@ func rec(msg string) telemetry.Record {
 
 func TestBufferedSinkWritesThrough(t *testing.T) {
 	w := &recordingWriter{}
-	sink := telemetry.NewBufferedSink(w, 64, 4, 20*time.Millisecond)
+	sink := telemetry.NewBufferedSink[telemetry.Record](w, 64, 4, 20*time.Millisecond)
 	sink.Start(context.Background())
 
 	for i := 0; i < 10; i++ {
@@ -85,7 +85,7 @@ func TestBufferedSinkWritesThrough(t *testing.T) {
 // behaviour is for Write to keep returning promptly and shed load.
 func TestBufferedSinkNeverBlocksTheCaller(t *testing.T) {
 	w := &recordingWriter{block: make(chan struct{})}
-	sink := telemetry.NewBufferedSink(w, 8, 4, time.Millisecond)
+	sink := telemetry.NewBufferedSink[telemetry.Record](w, 8, 4, time.Millisecond)
 	sink.Start(context.Background())
 
 	done := make(chan struct{})
@@ -115,7 +115,7 @@ func TestBufferedSinkNeverBlocksTheCaller(t *testing.T) {
 // stale prefix of an incident while losing the incident itself.
 func TestBufferedSinkDropsOldestNotNewest(t *testing.T) {
 	w := &recordingWriter{block: make(chan struct{})}
-	sink := telemetry.NewBufferedSink(w, 4, 64, time.Hour)
+	sink := telemetry.NewBufferedSink[telemetry.Record](w, 4, 64, time.Hour)
 	// Not started: nothing drains, so the buffer is the only thing holding
 	// records and the eviction order is observable without racing a drain.
 
@@ -148,7 +148,7 @@ func TestBufferedSinkFlushesOnClose(t *testing.T) {
 	w := &recordingWriter{}
 	// A batch size and flush interval neither of which will trigger on their
 	// own, so only the final flush can deliver these.
-	sink := telemetry.NewBufferedSink(w, 64, 1000, time.Hour)
+	sink := telemetry.NewBufferedSink[telemetry.Record](w, 64, 1000, time.Hour)
 	sink.Start(context.Background())
 
 	for i := 0; i < 7; i++ {
@@ -168,7 +168,7 @@ func TestBufferedSinkFlushesOnClose(t *testing.T) {
 // indistinguishable from a quiet system.
 func TestBufferedSinkCountsWriteFailures(t *testing.T) {
 	w := &recordingWriter{fail: true}
-	sink := telemetry.NewBufferedSink(w, 64, 2, time.Millisecond)
+	sink := telemetry.NewBufferedSink[telemetry.Record](w, 64, 2, time.Millisecond)
 	sink.Start(context.Background())
 
 	for i := 0; i < 6; i++ {
@@ -196,7 +196,7 @@ func TestBufferedSinkCountsWriteFailures(t *testing.T) {
 // queryable one. Silently, and only in production.
 func TestBufferedSinkKeepsDrainingAfterItsContextIsCancelled(t *testing.T) {
 	w := &recordingWriter{}
-	sink := telemetry.NewBufferedSink(w, 64, 1000, time.Hour)
+	sink := telemetry.NewBufferedSink[telemetry.Record](w, 64, 1000, time.Hour)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sink.Start(ctx)
@@ -227,7 +227,7 @@ func TestBufferedSinkKeepsDrainingAfterItsContextIsCancelled(t *testing.T) {
 // TestBufferedSinkCloseIsIdempotent — the composition root closes it on the
 // shutdown path, and a second call must not panic on a closed channel.
 func TestBufferedSinkCloseIsIdempotent(t *testing.T) {
-	sink := telemetry.NewBufferedSink(&recordingWriter{}, 8, 4, time.Millisecond)
+	sink := telemetry.NewBufferedSink[telemetry.Record](&recordingWriter{}, 8, 4, time.Millisecond)
 	sink.Start(context.Background())
 	_ = sink.Close()
 	_ = sink.Close()

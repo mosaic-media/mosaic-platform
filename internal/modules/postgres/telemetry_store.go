@@ -16,8 +16,16 @@ import (
 	"github.com/mosaic-media/platform/internal/platform/telemetry"
 )
 
-// telemetryTable is the partitioned parent created by migration 0014.
-const telemetryTable = "telemetry_logs"
+// The partitioned parents created by migrations 0014 and 0015. Both are
+// maintained together: they share a partitioning scheme precisely so there is
+// one thing to create ahead and one thing to expire, not two.
+const (
+	telemetryLogTable  = "telemetry_logs"
+	telemetrySpanTable = "telemetry_spans"
+)
+
+// partitionedTables is every table this store manages partitions for.
+var partitionedTables = []string{telemetryLogTable, telemetrySpanTable}
 
 // partitionLayout is the daily suffix: telemetry_logs_20260722.
 const partitionLayout = "20060102"
@@ -40,14 +48,15 @@ func NewTelemetryStore(pool *pgxpool.Pool) *TelemetryStore {
 	return &TelemetryStore{pool: pool}
 }
 
-// WriteRecords inserts a batch. It satisfies telemetry.BatchWriter.
+// WriteBatch inserts a batch of log records. It satisfies
+// telemetry.BatchWriter[telemetry.Record].
 //
 // CopyFrom rather than a multi-row INSERT: this is the one write path in the
 // Platform whose volume is unbounded by user action, and the binary copy
 // protocol costs materially less per row. The trade is that CopyFrom gives no
 // per-row error detail — which is the right trade here, because there is no
 // caller in a position to act on one.
-func (s *TelemetryStore) WriteRecords(ctx context.Context, records []telemetry.Record) error {
+func (s *TelemetryStore) WriteBatch(ctx context.Context, records []telemetry.Record) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -79,12 +88,70 @@ func (s *TelemetryStore) WriteRecords(ctx context.Context, records []telemetry.R
 	}
 
 	_, err := s.pool.CopyFrom(ctx,
-		pgx.Identifier{telemetryTable},
+		pgx.Identifier{telemetryLogTable},
 		[]string{"time", "level", "service", "instance", "boot", "trace", "span", "component", "module", "message", "fields"},
 		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
 		return mapError("write telemetry records", err)
+	}
+	return nil
+}
+
+// Spans returns the writer for completed spans.
+//
+// It is a separate value rather than another method on TelemetryStore because
+// telemetry.BatchWriter is generic: one type cannot satisfy it for both
+// telemetry.Record and telemetry.SpanRecord. Keeping both writers on one store
+// keeps partition maintenance in one place, which is the part that would
+// actually hurt to duplicate.
+func (s *TelemetryStore) Spans() telemetry.BatchWriter[telemetry.SpanRecord] {
+	return spanWriter{store: s}
+}
+
+type spanWriter struct{ store *TelemetryStore }
+
+// WriteBatch inserts a batch of completed spans.
+func (w spanWriter) WriteBatch(ctx context.Context, spans []telemetry.SpanRecord) error {
+	if len(spans) == 0 {
+		return nil
+	}
+
+	rows := make([][]any, 0, len(spans))
+	for _, sp := range spans {
+		attrs, err := marshalFields(sp.Attributes)
+		if err != nil {
+			continue
+		}
+		rows = append(rows, []any{
+			sp.Start.UTC(),
+			sp.Trace.TraceIDString(),
+			sp.Trace.SpanIDString(),
+			sp.ParentID,
+			sp.Name,
+			sp.Component,
+			sp.Module,
+			sp.Resource.ServiceName,
+			sp.Resource.InstanceID,
+			sp.Resource.BootID,
+			sp.Duration().Microseconds(),
+			sp.Status,
+			sp.ErrorCategory,
+			attrs,
+		})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	_, err := w.store.pool.CopyFrom(ctx,
+		pgx.Identifier{telemetrySpanTable},
+		[]string{"time", "trace", "span", "parent", "name", "component", "module",
+			"service", "instance", "boot", "duration_us", "status", "error_category", "attributes"},
+		pgx.CopyFromRows(rows),
+	)
+	if err != nil {
+		return mapError("write telemetry spans", err)
 	}
 	return nil
 }
@@ -118,22 +185,34 @@ func marshalFields(fields []telemetry.Field) ([]byte, error) {
 // must not run out.
 func (s *TelemetryStore) EnsurePartitions(ctx context.Context, day time.Time, ahead int) error {
 	day = day.UTC().Truncate(24 * time.Hour)
-	for i := 0; i < ahead; i++ {
-		start := day.AddDate(0, 0, i)
-		end := start.AddDate(0, 0, 1)
-		name := partitionName(start)
-		// Identifiers are derived from a date this code formats, never from
-		// input, so the interpolation cannot carry anything a caller chose.
-		sql := fmt.Sprintf(
-			`CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s')`,
-			name, telemetryTable,
-			start.Format(time.RFC3339), end.Format(time.RFC3339),
-		)
-		if _, err := s.pool.Exec(ctx, sql); err != nil {
-			return mapError("create telemetry partition", err)
+	for _, table := range partitionedTables {
+		for i := 0; i < ahead; i++ {
+			start := day.AddDate(0, 0, i)
+			end := start.AddDate(0, 0, 1)
+			// Identifiers are derived from a fixed table list and a date this
+			// code formats, never from input, so the interpolation cannot carry
+			// anything a caller chose.
+			sql := fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s')`,
+				partitionName(table, start), table,
+				start.Format(time.RFC3339), end.Format(time.RFC3339),
+			)
+			if _, err := s.pool.Exec(ctx, sql); err != nil {
+				return mapError("create telemetry partition", err)
+			}
 		}
 	}
 	return nil
+}
+
+// Retention is how long each signal is kept before its partitions are dropped.
+// The two differ by an order of magnitude (ADR 0058: logs 14 days, traces 72
+// hours) because they answer different questions — a log line is evidence
+// weeks later, a span is diagnosis while the problem is fresh, and spans are
+// far more numerous.
+type Retention struct {
+	Logs  time.Duration
+	Spans time.Duration
 }
 
 // DropExpiredPartitions removes every partition wholly older than retention,
@@ -143,7 +222,26 @@ func (s *TelemetryStore) EnsurePartitions(ctx context.Context, day time.Time, ah
 // deleting a day of rows rewrites and vacuums a table an administrator may be
 // querying, while dropping a partition is a catalogue update that finishes
 // instantly and returns the disk immediately.
-func (s *TelemetryStore) DropExpiredPartitions(ctx context.Context, now time.Time, retention time.Duration) (int, error) {
+func (s *TelemetryStore) DropExpiredPartitions(ctx context.Context, now time.Time, r Retention) (int, error) {
+	total := 0
+	for table, retention := range map[string]time.Duration{
+		telemetryLogTable:  r.Logs,
+		telemetrySpanTable: r.Spans,
+	} {
+		if retention <= 0 {
+			continue
+		}
+		dropped, err := s.dropExpired(ctx, table, now, retention)
+		total += dropped
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
+}
+
+// dropExpired drops one table's expired partitions.
+func (s *TelemetryStore) dropExpired(ctx context.Context, table string, now time.Time, retention time.Duration) (int, error) {
 	cutoff := now.UTC().Add(-retention).Truncate(24 * time.Hour)
 
 	rows, err := s.pool.Query(ctx,
@@ -151,7 +249,7 @@ func (s *TelemetryStore) DropExpiredPartitions(ctx context.Context, now time.Tim
 		   FROM pg_class c
 		   JOIN pg_inherits i ON i.inhrelid = c.oid
 		   JOIN pg_class p ON p.oid = i.inhparent
-		  WHERE p.relname = $1`, telemetryTable)
+		  WHERE p.relname = $1`, table)
 	if err != nil {
 		return 0, mapError("list telemetry partitions", err)
 	}
@@ -171,7 +269,7 @@ func (s *TelemetryStore) DropExpiredPartitions(ctx context.Context, now time.Tim
 
 	dropped := 0
 	for _, name := range names {
-		day, ok := partitionDay(name)
+		day, ok := partitionDay(table, name)
 		if !ok {
 			// Not one of ours by name. Left alone: dropping a table because
 			// its name did not parse is not a risk worth taking.
@@ -191,15 +289,15 @@ func (s *TelemetryStore) DropExpiredPartitions(ctx context.Context, now time.Tim
 	return dropped, nil
 }
 
-// partitionName is the table name for a day's partition.
-func partitionName(day time.Time) string {
-	return telemetryTable + "_" + day.UTC().Format(partitionLayout)
+// partitionName is the table name for a day's partition of table.
+func partitionName(table string, day time.Time) string {
+	return table + "_" + day.UTC().Format(partitionLayout)
 }
 
 // partitionDay parses a partition name back to its day, reporting whether the
-// name is one this code produced.
-func partitionDay(name string) (time.Time, bool) {
-	prefix := telemetryTable + "_"
+// name is one this code produced for table.
+func partitionDay(table, name string) (time.Time, bool) {
+	prefix := table + "_"
 	if len(name) != len(prefix)+len(partitionLayout) || name[:len(prefix)] != prefix {
 		return time.Time{}, false
 	}

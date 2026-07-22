@@ -12,6 +12,7 @@ import (
 
 	"github.com/mosaic-media/platform/internal/platform/contracts"
 	"github.com/mosaic-media/platform/internal/platform/domain"
+	"github.com/mosaic-media/platform/internal/platform/telemetry"
 )
 
 const (
@@ -110,9 +111,22 @@ func NewWorker(outbox contracts.EventOutbox, publisher contracts.EventPublisher,
 // boot-time drain; Start uses it as the body of its poll loop. Every call
 // updates the health bookkeeping ReportHealth reads.
 func (w *Worker) RunOnce(ctx context.Context) (published int, err error) {
+	// One span per drain (ADR 0055, seam 7).
+	//
+	// The drain gets its *own* trace rather than continuing the request that
+	// wrote the rows: publication happens on a later tick, after that request
+	// has long returned, and parenting it there would produce traces that
+	// appear to hang for minutes. Cause is not lost — every row carries the
+	// correlation id of the request that produced it (ADR 0054), so the join
+	// is one query away — and duration stays honest.
+	ctx, span := telemetry.Start(telemetry.TraceInto(ctx, telemetry.NewTraceContext()),
+		"outbox.drain", telemetry.String("component", "outbox-worker"))
+	defer span.End()
+
 	events, err := w.outbox.ListUnpublished(ctx, w.batchSize)
 	if err != nil {
 		w.recordCheck(domain.HealthUnavailable, string(contracts.CategoryOf(err)), "list unpublished events failed")
+		span.Fail(string(contracts.CategoryOf(err)), err)
 		return 0, err
 	}
 

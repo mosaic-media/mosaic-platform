@@ -39,6 +39,7 @@ import (
 	"github.com/mosaic-media/platform/internal/transport/artwork"
 	authtransport "github.com/mosaic-media/platform/internal/transport/auth"
 	"github.com/mosaic-media/platform/internal/transport/health"
+	"github.com/mosaic-media/platform/internal/transport/netguard"
 	"github.com/mosaic-media/platform/internal/transport/playback"
 	"github.com/mosaic-media/platform/internal/transport/rpc"
 	"github.com/mosaic-media/platform/internal/transport/session"
@@ -104,12 +105,19 @@ const telemetryLogPath = "logs/mosaic-platform.log"
 // nowhere to put its records.
 const telemetryPartitionsAhead = 14
 
-// telemetryLogRetention is how long queryable log records are kept before
-// their partition is dropped. It is the default for
-// telemetry.retention.logs_days, which is a Hot config field an administrator
-// can change — reading it from Active config is the work that lands with the
-// expert-mode surface; until then this constant is the value in force.
-const telemetryLogRetention = 14 * 24 * time.Hour
+// telemetryRetention is how long each queryable signal is kept before its
+// partitions are dropped. These are the defaults for the
+// telemetry.retention.* Hot config fields an administrator can change —
+// reading them from Active config is the work that lands with the expert-mode
+// surface; until then these are the values in force.
+//
+// Spans expire far sooner than logs, and deliberately: a log line is still
+// evidence weeks later, a span is diagnosis while the problem is fresh, and
+// there are many more of them.
+var telemetryRetention = postgres.Retention{
+	Logs:  14 * 24 * time.Hour,
+	Spans: 72 * time.Hour,
+}
 
 // telemetryMaintenanceInterval is how often partitions are extended and
 // expired ones dropped. Hourly is far more often than a daily boundary needs,
@@ -142,12 +150,17 @@ func adminPermissions() []domain.Permission {
 // place that names concrete modules — the composition-root equivalent of the
 // Build Pipeline's generated imports (ADR 0007). Modules land here as they are
 // added; the Stremio addon-source module is the first.
-func registerCapabilities(reg *app.CapabilityRegistry) {
+func registerCapabilities(reg *app.CapabilityRegistry, httpClient *http.Client) {
 	// The Stremio addon-source module. It is always registered: the addons it
 	// sources from are user-managed settings (ADR 0021), set at runtime through
 	// configureModule rather than baked in at composition, so the module is
 	// available even before any addon is configured.
-	reg.Register(stremio.New(nil))
+	// Handed the Platform's client rather than nil (ADR 0055, seam 9): it spans
+	// every outbound call and, more importantly, routes through netguard's dial
+	// guard. A module builds its own client when given nil, which bypassed the
+	// SSRF protection entirely for the one caller that fetches URLs a user
+	// supplied.
+	reg.Register(stremio.New(httpClient))
 	// The remote playback module — the first *consumer* capability (ADR 0045).
 	// Registering it is what stops the library being inert: the Stremio module
 	// above snapshots a stream location at import, and this is what can turn
@@ -188,7 +201,7 @@ func telemetryMaintenance(ctx context.Context, store *postgres.TelemetryStore, l
 			if err := store.EnsurePartitions(ctx, now.UTC(), telemetryPartitionsAhead); err != nil {
 				lg.Error("extend telemetry partitions failed", telemetry.Err(err))
 			}
-			dropped, err := store.DropExpiredPartitions(ctx, now.UTC(), telemetryLogRetention)
+			dropped, err := store.DropExpiredPartitions(ctx, now.UTC(), telemetryRetention)
 			if err != nil {
 				lg.Error("drop expired telemetry partitions failed", telemetry.Err(err))
 				continue
@@ -196,7 +209,8 @@ func telemetryMaintenance(ctx context.Context, store *postgres.TelemetryStore, l
 			if dropped > 0 {
 				lg.Info("dropped expired telemetry partitions",
 					telemetry.Int("partitions", dropped),
-					telemetry.Duration("retention", telemetryLogRetention))
+					telemetry.Duration("log_retention", telemetryRetention.Logs),
+					telemetry.Duration("span_retention", telemetryRetention.Spans))
 			}
 		}
 	}
@@ -342,11 +356,19 @@ func run() error {
 		// the file sink still has everything.
 		boot.Error("could not create telemetry partitions; the queryable sink will drop records", telemetry.Err(err))
 	}
-	bufferedSink := telemetry.NewBufferedSink(telemetryStore, 0, 0, 0)
+	bufferedSink := telemetry.NewBufferedSink[telemetry.Record](telemetryStore, 0, 0, 0)
 	root = root.WithSink(telemetry.MultiSink{
 		telemetry.NewConsoleSink(os.Stdout), fileSink, bufferedSink,
 	})
 	boot = root.For("composition-root")
+
+	// Spans go only to the queryable sink (ADR 0055). A span is a shape — a
+	// tree with durations — and rendering one into a flat log file produces
+	// noise a human cannot reassemble, so unlike log records there is nothing
+	// gained by a second copy on disk. A trace that matters is reconstructed
+	// from the database; if the database is gone, the log file still holds the
+	// records, which is the part that was ever readable by eye.
+	spanSink := telemetry.NewBufferedSink[telemetry.SpanRecord](telemetryStore.Spans(), 0, 0, 0)
 
 	logSnapshot := func(ctx context.Context, label string) {
 		for _, h := range diagRegistry.Snapshot(ctx) {
@@ -364,7 +386,7 @@ func run() error {
 	// selection: modules are registered here explicitly rather than discovered,
 	// until the Supervisor's Build Pipeline generates the imports.
 	capRegistry := app.NewCapabilityRegistry()
-	registerCapabilities(capRegistry)
+	registerCapabilities(capRegistry, netguard.ModuleClient())
 	// Fail boot if a capability declares a provider role it does not implement
 	// (ADR 0027): a role named but unbacked would otherwise surface as a nil
 	// provider at invocation, not at composition.
@@ -485,6 +507,7 @@ func run() error {
 	// loop, and stopped in the shutdown block below so the last second of
 	// records is not silently discarded.
 	bufferedSink.Start(serveCtx)
+	spanSink.Start(serveCtx)
 	go telemetryMaintenance(serveCtx, telemetryStore, root.For("telemetry"))
 
 	handoff := &health.Handoff{
@@ -505,7 +528,7 @@ func run() error {
 	// context from serveCtx rather than serveCtx itself: serveCtx is cancelled
 	// by the shutdown signal, and using it here would abort in-flight requests
 	// at exactly the moment graceful shutdown is trying to let them finish.
-	requestCtx := telemetry.Into(context.Background(), root)
+	requestCtx := telemetry.WithSpanSink(telemetry.Into(context.Background(), root), spanSink)
 	baseContext := func(net.Listener) context.Context { return requestCtx }
 
 	httpServer := &http.Server{
@@ -625,6 +648,7 @@ func run() error {
 			telemetry.Int64("dropped_buffer_full", int64(dropped)),
 			telemetry.Int64("failed_write", int64(failed)))
 	}
+	_ = spanSink.Close()
 	_ = bufferedSink.Close()
 
 	boot.Info("exiting cleanly")

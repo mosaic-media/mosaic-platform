@@ -11,13 +11,18 @@ import (
 	"time"
 )
 
-// BatchWriter persists a batch of records. It is implemented by the storage
-// module (internal/modules/postgres), which is why this is an interface here:
-// the Platform tier decides what a record is and when it is written, and the
-// module decides how. A writer must be safe for concurrent use, though
-// BufferedSink calls it from one goroutine.
-type BatchWriter interface {
-	WriteRecords(ctx context.Context, records []Record) error
+// BatchWriter persists a batch of T. It is implemented by the storage module
+// (internal/modules/postgres), which is why this is an interface here: the
+// Platform tier decides what a record is and when it is written, and the module
+// decides how. A writer must be safe for concurrent use, though BufferedSink
+// calls it from one goroutine.
+//
+// It is generic because logs and spans want identical delivery semantics —
+// never block, shed oldest, count the loss, flush on close — and differ only in
+// payload. One implementation with two instantiations beats two copies that
+// drift.
+type BatchWriter[T any] interface {
+	WriteBatch(ctx context.Context, batch []T) error
 }
 
 // Defaults sized for a self-hosted install: a few thousand records of headroom
@@ -42,9 +47,9 @@ const (
 // the interesting records are the recent ones — whatever is happening now —
 // and a buffer that discards new arrivals would preserve a stale prefix of the
 // incident while losing the incident.
-type BufferedSink struct {
-	records chan Record
-	writer  BatchWriter
+type BufferedSink[T any] struct {
+	records chan T
+	writer  BatchWriter[T]
 
 	batchSize int
 	flush     time.Duration
@@ -61,7 +66,7 @@ type BufferedSink struct {
 
 // NewBufferedSink builds a sink over w. A zero capacity, batch size or flush
 // interval takes the default.
-func NewBufferedSink(w BatchWriter, capacity, batchSize int, flush time.Duration) *BufferedSink {
+func NewBufferedSink[T any](w BatchWriter[T], capacity, batchSize int, flush time.Duration) *BufferedSink[T] {
 	if capacity <= 0 {
 		capacity = defaultCapacity
 	}
@@ -71,8 +76,8 @@ func NewBufferedSink(w BatchWriter, capacity, batchSize int, flush time.Duration
 	if flush <= 0 {
 		flush = defaultFlush
 	}
-	return &BufferedSink{
-		records:   make(chan Record, capacity),
+	return &BufferedSink[T]{
+		records:   make(chan T, capacity),
 		writer:    w,
 		batchSize: batchSize,
 		flush:     flush,
@@ -83,7 +88,7 @@ func NewBufferedSink(w BatchWriter, capacity, batchSize int, flush time.Duration
 
 // Write enqueues r, discarding the oldest buffered record if the buffer is
 // full. It never blocks and never fails.
-func (b *BufferedSink) Write(r Record) {
+func (b *BufferedSink[T]) Write(r T) {
 	for {
 		select {
 		case b.records <- r:
@@ -106,12 +111,12 @@ func (b *BufferedSink) Write(r Record) {
 // reported as telemetry in its own right: a subsystem silently losing records
 // looks exactly like a quiet system, and the difference matters most during
 // the incident that caused the pressure.
-func (b *BufferedSink) Dropped() uint64 { return b.dropped.Load() }
+func (b *BufferedSink[T]) Dropped() uint64 { return b.dropped.Load() }
 
 // Failed is the number of records lost to write errors — a database that is
 // down, a partition that does not exist. The file sink still has every one of
 // them, which is the point of there being two.
-func (b *BufferedSink) Failed() uint64 { return b.failed.Load() }
+func (b *BufferedSink[T]) Failed() uint64 { return b.failed.Load() }
 
 // Start runs the drain loop. It stops on Close, and deliberately **not** when
 // ctx is cancelled.
@@ -126,26 +131,26 @@ func (b *BufferedSink) Failed() uint64 { return b.failed.Load() }
 //
 // The consequence is that a caller must Close, or the goroutine outlives the
 // sink. Every caller here does, on the shutdown path.
-func (b *BufferedSink) Start(ctx context.Context) {
+func (b *BufferedSink[T]) Start(ctx context.Context) {
 	go b.drain(ctx)
 }
 
 // Close stops the drain loop and waits for it to flush what it holds. It is
 // safe to call more than once.
-func (b *BufferedSink) Close() error {
+func (b *BufferedSink[T]) Close() error {
 	b.stopOnce.Do(func() { close(b.stop) })
 	<-b.done
 	return nil
 }
 
 // drain batches records by size or by time, whichever comes first.
-func (b *BufferedSink) drain(ctx context.Context) {
+func (b *BufferedSink[T]) drain(ctx context.Context) {
 	defer close(b.done)
 
 	ticker := time.NewTicker(b.flush)
 	defer ticker.Stop()
 
-	batch := make([]Record, 0, b.batchSize)
+	batch := make([]T, 0, b.batchSize)
 	writeBatch := func() {
 		if len(batch) == 0 {
 			return
@@ -155,7 +160,7 @@ func (b *BufferedSink) drain(ctx context.Context) {
 		// because shutdown began would throw away exactly the records
 		// describing the shutdown.
 		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		if err := b.writer.WriteRecords(writeCtx, batch); err != nil {
+		if err := b.writer.WriteBatch(writeCtx, batch); err != nil {
 			b.failed.Add(uint64(len(batch)))
 		}
 		cancel()
@@ -180,7 +185,7 @@ func (b *BufferedSink) drain(ctx context.Context) {
 
 // finalFlush drains whatever is still buffered before the loop exits, so a
 // clean shutdown does not silently discard the last second of records.
-func (b *BufferedSink) finalFlush(batch *[]Record, writeBatch func()) {
+func (b *BufferedSink[T]) finalFlush(batch *[]T, writeBatch func()) {
 	for {
 		select {
 		case r := <-b.records:
@@ -194,3 +199,8 @@ func (b *BufferedSink) finalFlush(batch *[]Record, writeBatch func()) {
 		}
 	}
 }
+
+// WriteSpan adapts a span-carrying BufferedSink to SpanSink, so spans get the
+// same never-block, shed-oldest, flush-on-close delivery as log records
+// without a second implementation of any of it.
+func (b *BufferedSink[T]) WriteSpan(r T) { b.Write(r) }

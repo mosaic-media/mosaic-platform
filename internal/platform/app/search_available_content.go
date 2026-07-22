@@ -10,6 +10,7 @@ import (
 
 	"github.com/mosaic-media/platform/internal/platform/contracts"
 	"github.com/mosaic-media/platform/internal/platform/policy"
+	"github.com/mosaic-media/platform/internal/platform/telemetry"
 	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 )
 
@@ -65,12 +66,26 @@ func (s *Service) SearchAvailableContent(ctx context.Context, q SearchAvailableC
 			if err != nil {
 				return nil, err
 			}
+			// A span per provider, inside the fan-out. This is where a
+			// waterfall earns its keep: several addons are queried at once and
+			// the slow one is invisible in any aggregate.
+			//
+			// It matters more than usual here because the error below is
+			// deliberately swallowed — one unreachable addon must not fail the
+			// whole search — so until now a provider that failed every time
+			// looked exactly like one that returned nothing. The span is the
+			// only place that difference is recorded.
+			ctx, span := moduleSpan(ctx, e.ModuleID, "search")
 			resp, err := e.Provider.Search(ctx, v1.SearchRequest{
 				Caller: q.Caller, Settings: settings, Text: q.Text, MediaType: q.MediaType, Limit: q.Limit,
 			})
+			failSpan(span, err)
 			if err != nil {
+				span.End()
 				return nil, nil
 			}
+			span.SetAttributes(telemetry.Int("results", len(resp.Results)))
+			span.End()
 			out := resp.Results
 			for i := range out {
 				out[i].InLibrary, out[i].NodeID = s.resolveInLibrary(ctx, q.Caller, out[i].Ref)

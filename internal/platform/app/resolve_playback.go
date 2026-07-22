@@ -132,11 +132,14 @@ func (s *Service) ResolvePlayback(ctx context.Context, q ResolvePlaybackQuery) (
 		return ResolvePlaybackResult{}, err
 	}
 
+	ctx, span := moduleSpan(ctx, entry.ModuleID, "resolve_playback")
 	res, err := entry.Provider.Resolve(ctx, v1.PlaybackRequest{
 		Caller:   q.Caller,
 		Settings: settings,
 		Part:     part,
 	})
+	failSpan(span, err)
+	span.End()
 	if err != nil {
 		return ResolvePlaybackResult{}, contracts.WrapError(contracts.Unavailable, "resolve playback", err)
 	}

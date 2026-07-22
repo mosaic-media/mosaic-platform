@@ -14,6 +14,8 @@ import (
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mosaic-media/platform/internal/modules/postgres"
 )
 
 // This harness gives the Postgres adapter a REAL PostgreSQL instance to run
@@ -123,7 +125,12 @@ func freshDatabase(t *testing.T) *pgxpool.Pool {
 	}
 	admin.Close()
 
-	pool, err := pgxpool.New(ctx, dsnForDatabase(name))
+	// postgres.Connect rather than pgxpool.New, so tests exercise the pool the
+	// Platform actually builds. It was pgxpool.New until the query tracer
+	// (ADR 0055, seam 6) landed, and the difference was invisible until a test
+	// asserted on statement spans and found none: the tracer is attached in
+	// Connect, so a pool built any other way is silently untraced.
+	pool, err := postgres.Connect(ctx, dsnForDatabase(name))
 	if err != nil {
 		t.Fatalf("connect %s: %v", name, err)
 	}
