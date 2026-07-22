@@ -1,0 +1,48 @@
+# Local-checkout overlay for the Mosaic dev stack.
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.local.yml up
+#
+# The base file builds against published versions. This one swaps in the sibling
+# working copies, so an edit in `sdk`, `sdui` or a module is picked up by a
+# restart rather than by a tag-and-publish round trip.
+#
+# It expects the repositories checked out as siblings, which the platform
+# CLAUDE.md already assumes:
+#
+#   Mosaic/
+#     platform/            <- this repository
+#     sdk/  sdui/
+#     module-stremio-addons/  module-remote-playback/
+#     web/
+#
+# **Go side: a workspace, not a `replace`.** `go.work` overrides the module
+# cache for whatever it lists, and it lives only inside the container — so
+# switching between published and local changes no committed file. Editing
+# go.mod would do the same job and leave the repository in a state that only
+# builds on one machine, which is how a `replace` for a published module ends up
+# committed by accident.
+#
+# **npm side: the lockfile already links `@mosaic-media/sdui` to `../sdui`**, so
+# the sibling only has to be present at the matching path. Without it npm does
+# not error — it silently falls back to a stale hoisted version, and the failure
+# surfaces two layers away as a missing export.
+services:
+  platform:
+    volumes:
+      - ../sdk:/src/sdk
+      - ../sdui:/src/sdui
+      - ../module-stremio-addons:/src/module-stremio-addons
+      - ../module-remote-playback:/src/module-remote-playback
+    # go.work is written at start rather than baked into the image, because the
+    # image is shared with the published stack and must not carry it.
+    command: >
+      sh -c "cd /src/platform &&
+             go work init . 2>/dev/null || true &&
+             go work use . /src/sdk /src/sdui /src/module-stremio-addons /src/module-remote-playback &&
+             exec go run ./cmd/mosaic-platform"
+
+  web:
+    volumes:
+      # Mounted at the path the lockfile's link resolves to, relative to the web
+      # root. sdui-react is a workspace package and needs no mount.
+      - ../sdui:/src/sdui

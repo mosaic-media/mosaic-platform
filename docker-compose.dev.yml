@@ -1,79 +1,127 @@
-# The Mosaic dev stack: one container, three processes.
+# The Mosaic dev stack — published dependencies.
 #
-#   docker compose -f docker-compose.dev.yml up --build
+#   docker compose -f docker-compose.dev.yml up
 #
-# PostgreSQL, the Platform and the web Shell run side by side under supervisord
-# (see Dockerfile.dev for why one container rather than three). Compose is still
-# worth keeping for the parts it does well — volumes, ports, bind mounts and a
-# single memorable command — even with only one service to define.
+# Three services, one process each, wired by healthchecks. This replaces an
+# earlier single container that ran all three under supervisord: collapsing them
+# saved an image layer and cost the things compose does properly — ordering by
+# readiness rather than by a hand-rolled wait loop, restarting one service
+# without the others, and a per-service log stream. The layers were the cheaper
+# thing to spend.
 #
-# It reaches out of this repository into ../module-remote-playback and ../web.
-# That is the price of a multi-repo layout, and it is why the sibling checkout
-# order in CLAUDE.md matters: the local `replace` in go.mod cannot resolve unless
-# the module is mounted at the same relative path it names.
+# **This file builds against published versions**: the Platform resolves its
+# modules from the Go proxy and the Shell installs from npm. It is what a
+# contributor with no sibling checkouts gets, and what CI would run.
 #
-# The existing docker-compose.yml stays as it is: postgres alone, for running the
-# integration tests against a persistent database.
+# For a stack that uses the sibling working copies instead, add the local
+# overlay — see docker-compose.local.yml:
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.local.yml up
+#
+# The existing docker-compose.yml stays as it is: postgres alone, for running
+# the integration tests against a persistent database.
 name: mosaic-dev
 
 services:
-  mosaic:
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
+  postgres:
+    # 18 is current; the official image handles cluster init and database
+    # creation, which is why this needs no entrypoint of its own.
+    image: postgres:18-alpine
     environment:
-      # Postgres is a sibling process, so this is loopback rather than a service
-      # name. Trust auth on a container-local database (see docker/entrypoint.sh).
-      MOSAIC_POSTGRES_DSN: "postgres://mosaic@127.0.0.1:5432/mosaic?sslmode=disable"
-      MOSAIC_BOOTSTRAP_ADMIN_USERNAME: "admin"
-      MOSAIC_BOOTSTRAP_ADMIN_PASSWORD: "admin"
-      MOSAIC_API_ADDR: ":8081"
-      MOSAIC_HEALTH_ADDR: ":8080"
-      # Vite dev-proxies /graphql, /artwork, /playback and the session service
-      # here; in-container that is loopback too.
-      MOSAIC_PLATFORM_URL: "http://127.0.0.1:8081"
+      POSTGRES_USER: mosaic
+      POSTGRES_PASSWORD: mosaic
+      POSTGRES_DB: mosaic
     ports:
-      - "5173:5173"   # web Shell
-      - "8081:8081"   # API, session transport, artwork, playback origin
-      - "8080:8080"   # Supervisor handoff surface
       # 5433 on the host on purpose. A natively-installed PostgreSQL already
       # holds 5432 on at least one dev machine, and that clash surfaces as
       # something connecting to the *wrong* database rather than failing to
       # start — a far worse afternoon.
       - "5433:5432"
     volumes:
-      - .:/src/platform
-      - ../module-remote-playback:/src/module-remote-playback
-      - ../web:/src/web
-      # The web lockfile links @mosaic-media/sdui to ../sdui — the sibling
-      # checkout — rather than the registry copy, which is the documented local
-      # cross-repo pattern. The link is relative to the web root, so the sibling
-      # has to sit at the same relative path inside the container or npm
-      # silently falls back to a stale hoisted version and Vite fails with
-      # `Missing "./session" specifier`, which reads as a broken package rather
-      # than a missing mount.
-      - ../sdui:/src/sdui
       - mosaic-dev-pgdata:/var/lib/postgresql/data
-      # Caches and dependency trees live in volumes rather than on the bind
-      # mount. Source comes from the Windows filesystem, and letting Go and npm
-      # write tens of thousands of small files across that boundary turns a warm
-      # start from seconds into minutes. Keeping node_modules out of the mount
-      # also stops the container's Linux binaries colliding with a host install.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mosaic -d mosaic"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  platform:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    depends_on:
+      # The Platform exits if it cannot reach the database. Waiting on the
+      # healthcheck is what compose is for; the previous design hand-rolled a
+      # pg_isready loop because supervisord has no equivalent.
+      postgres:
+        condition: service_healthy
+    environment:
+      MOSAIC_POSTGRES_DSN: "postgres://mosaic:mosaic@postgres:5432/mosaic?sslmode=disable"
+      MOSAIC_BOOTSTRAP_ADMIN_USERNAME: "admin"
+      MOSAIC_BOOTSTRAP_ADMIN_PASSWORD: "admin"
+      MOSAIC_API_ADDR: ":8081"
+      MOSAIC_HEALTH_ADDR: ":8080"
+    volumes:
+      - .:/src/platform
+      # The one exception to "published": go.mod carries a `replace` for
+      # module-remote-playback, which has no remote yet, so the sibling has to be
+      # mounted even here or the build cannot resolve it. This line and the
+      # matching one on `web` are the only things standing between this file and
+      # a stack that needs no checkouts at all; both disappear the day their
+      # dependency is published.
+      - ../module-remote-playback:/src/module-remote-playback
+      # Caches live in volumes, not on the bind mount. Source comes from the
+      # host filesystem, and letting Go write thousands of cache files across
+      # that boundary turns a warm rebuild from seconds into minutes.
       - mosaic-dev-gomod:/go/pkg/mod
       - mosaic-dev-gobuild:/root/.cache/go-build
-      - mosaic-dev-npm:/root/.npm
-      - mosaic-dev-node-root:/src/web/node_modules
-      - mosaic-dev-node-shell:/src/web/packages/shell/node_modules
-      - mosaic-dev-node-sdui:/src/web/packages/sdui-react/node_modules
+    ports:
+      - "8081:8081"
+      - "8080:8080"
     healthcheck:
-      # The Platform answering is what "up" means here; postgres being alive is
-      # necessary and not sufficient, and the Shell can be restarted without the
-      # stack being considered down.
-      test: ["CMD-SHELL", "curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"query\":\"{__typename}\"}' http://127.0.0.1:8081/graphql >/dev/null || exit 1"]
+      # The Platform answering is what "up" means. `go run` compiles first, so
+      # the process existing says nothing about the port being open — hence the
+      # long start_period rather than a long interval.
+      test: ["CMD-SHELL", "curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"query\":\"{__typename}\"}' http://127.0.0.1:8081/graphql >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 180s
+      start_period: 240s
+
+  web:
+    image: node:22-bookworm-slim
+    depends_on:
+      platform:
+        condition: service_started
+    working_dir: /src/web
+    environment:
+      # Vite dev-proxies /graphql, /artwork, /playback and the session service
+      # to the Platform (see the Shell's vite.config.ts).
+      MOSAIC_PLATFORM_URL: "http://platform:8081"
+    volumes:
+      - ../web:/src/web
+      # The other exception: the web lockfile links @mosaic-media/sdui to
+      # ../sdui rather than the registry. npm does not error when the target is
+      # missing — it silently resolves a stale hoisted version, and the failure
+      # surfaces two layers away as a missing export.
+      - ../sdui:/src/sdui
+      - mosaic-dev-npm:/root/.npm
+      # node_modules are volumes rather than part of the bind mount: an npm
+      # install writes tens of thousands of small files, which is the worst
+      # possible shape for a cross-OS mount, and it keeps the container's Linux
+      # binaries from colliding with a host-side install.
+      - mosaic-dev-node-root:/src/web/node_modules
+      - mosaic-dev-node-shell:/src/web/packages/shell/node_modules
+      - mosaic-dev-node-sdui:/src/web/packages/sdui-react/node_modules
+    # --host is required: without it Vite binds to loopback inside the container
+    # and nothing on the host can reach it, which looks exactly like the dev
+    # server failing to start.
+    command: >
+      sh -c "npm install --no-fund --no-audit &&
+             npm run build --workspace @mosaic-media/sdui-react &&
+             exec npm run dev --workspace mosaic-shell -- --host 0.0.0.0 --port 5173 --strictPort"
+    ports:
+      - "5173:5173"
 
 volumes:
   mosaic-dev-pgdata:
