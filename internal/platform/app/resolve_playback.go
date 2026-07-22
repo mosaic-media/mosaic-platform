@@ -12,13 +12,38 @@ import (
 	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 )
 
-// ResolvePlaybackQuery asks where an item's playable bytes are, right now. It
-// names the Part rather than the node because an item may have several — the
-// editions and segments of ADR 0013 — and which one plays is the caller's
-// choice, not this handler's guess.
+// ResolvePlaybackQuery asks where an item's playable bytes are, right now.
+//
+// It names a Part rather than a node because a node has no bytes. That Part is
+// the item's entry point rather than a verdict: an import stores every release a
+// source offered (ADR 0049), and which of them actually plays is chosen here,
+// against the calling client's Prefer (ADR 0048).
 type ResolvePlaybackQuery struct {
 	Caller v1.Caller
 	PartID v1.PartID
+	// Prefer describes what the calling client can play. It is the shape a
+	// declared capability profile reduces to (ADR 0047); an empty value means
+	// "no preference expressed", and selection falls back to the source's own
+	// ranking rather than inventing one.
+	Prefer PlaybackPreference
+}
+
+// PlaybackPreference is the client-shaped half of selection: what it can decode,
+// and how much it wants to move.
+type PlaybackPreference struct {
+	// Containers, VideoCodecs and AudioCodecs are the sets the client can play.
+	// Empty means unconstrained.
+	Containers  map[string]bool
+	VideoCodecs map[string]bool
+	AudioCodecs map[string]bool
+	// MaxHeight caps resolution, 0 for uncapped. A phone asking for 2160p is
+	// spending bandwidth on pixels it cannot show.
+	MaxHeight int
+}
+
+// Empty reports whether the preference expresses nothing at all.
+func (p PlaybackPreference) Empty() bool {
+	return len(p.Containers) == 0 && len(p.VideoCodecs) == 0 && len(p.AudioCodecs) == 0 && p.MaxHeight == 0
 }
 
 // ResolvePlaybackResult is the upstream location a playback provider resolved,
@@ -72,6 +97,15 @@ func (s *Service) ResolvePlayback(ctx context.Context, q ResolvePlaybackQuery) (
 		return ResolvePlaybackResult{}, err
 	}
 
+	// Which release actually plays is chosen here, not at import (ADR 0048).
+	// The source offers dozens for one item and they differ in ways that decide
+	// whether a given client can play them at all; import stored the set
+	// precisely so this choice could be made with the caller in view. The Part
+	// named by the request is the item's entry point, not a verdict.
+	if chosen, ok := s.selectPlayable(ctx, part, q.Prefer); ok {
+		part = chosen
+	}
+
 	entry, ok := s.playbackProvider()
 	if !ok {
 		// This is ADR 0036's inert library, reported honestly rather than as a
@@ -123,4 +157,95 @@ func (s *Service) playbackProvider() (PlaybackProviderEntry, bool) {
 		return PlaybackProviderEntry{}, false
 	}
 	return entries[0], true
+}
+
+// selectPlayable picks the candidate to play from the item's Parts.
+//
+// The ordering is deliberate and is the whole of ADR 0048's argument. A
+// candidate the client can decode outright beats one needing work, because
+// re-encoding costs latency the viewer sees and forfeits byte-range seeking.
+// Among equals, the source's own ranking wins — it knows its ecosystem better
+// than a guess made here does.
+//
+// It is best-effort by construction: the metadata it ranks on was parsed from
+// release text at the module boundary (ADR 0051) and can be wrong or absent.
+// That is acceptable *because* it only orders a list — what the chosen release
+// actually contains is settled by probing the bytes before they play (ADR 0050),
+// so a bad parse costs a suboptimal choice rather than a failed play.
+func (s *Service) selectPlayable(ctx context.Context, entry v1.Part, prefer PlaybackPreference) (v1.Part, bool) {
+	if entry.NodeID == "" || s.parts == nil {
+		return entry, false
+	}
+	candidates, err := s.parts.ListByNode(ctx, entry.NodeID)
+	if err != nil || len(candidates) < 2 {
+		return entry, false
+	}
+
+	best, bestScore := entry, playbackScore(entry, prefer)
+	for _, c := range candidates {
+		if c.ID == entry.ID {
+			continue
+		}
+		if score := playbackScore(c, prefer); score > bestScore {
+			best, bestScore = c, score
+		}
+	}
+	return best, best.ID != entry.ID
+}
+
+// codecScore rates one codec against what a client can decode: known-good,
+// unknown, or known-bad, in that order.
+func codecScore(codec string, accepted map[string]bool) int {
+	if len(accepted) == 0 || codec == "" {
+		return 0 // nothing to judge against, or nothing parsed to judge
+	}
+	if accepted[codec] {
+		return 1000
+	}
+	return -1000
+}
+
+// playbackScore ranks one candidate for a client. Higher is better.
+//
+// The weights encode an order rather than a measurement: compatibility dominates
+// resolution, because an unplayable 4K release is worth less than a playable
+// 720p one, and a needed re-encode is a real cost rather than a footnote.
+func playbackScore(p v1.Part, prefer PlaybackPreference) int {
+	score := 0
+
+	if prefer.Empty() {
+		// Nothing to rank against, so keep the source's order: a lower
+		// NaturalOrder (the addon's own ranking) scores higher.
+		return -int(p.NaturalOrder)
+	}
+
+	// Codec compatibility first, and audio counts as much as video: an
+	// undecodable audio track is the difference between a film and a silent
+	// film, which is not a lesser failure.
+	//
+	// Three states, not two, and the distinction is load-bearing. A codec the
+	// client is known to decode is rewarded; one it is known *not* to decode is
+	// penalised; and one the module could not parse is left neutral. Collapsing
+	// the last two would rank an unparsed candidate as though it were known-bad
+	// — and the module's parse is best-effort, so plenty of perfectly playable
+	// releases arrive unparsed. Unknown is not the same as wrong.
+	score += codecScore(p.VideoCodec, prefer.VideoCodecs)
+	score += codecScore(p.AudioCodec, prefer.AudioCodecs)
+	if len(prefer.Containers) > 0 && p.Container != "" && prefer.Containers[p.Container] {
+		score += 200
+	}
+
+	// Resolution, once compatibility is settled. A capped client gains nothing
+	// from pixels it cannot display and pays for them in bandwidth.
+	switch {
+	case prefer.MaxHeight > 0 && p.Height > prefer.MaxHeight:
+		score -= 500
+	case p.Height > 0:
+		score += p.Height / 10
+	}
+
+	// The source's own ranking breaks ties, faintly enough not to outweigh
+	// anything above it.
+	score -= int(p.NaturalOrder)
+	return score
 }

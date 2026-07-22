@@ -83,7 +83,14 @@ func (h *Handler) playPart(ctx context.Context, caller v1.Caller, input []byte) 
 		return nil, contracts.NewError(contracts.Unavailable, "playback is not configured on this Platform")
 	}
 
-	res, err := h.svc.ResolvePlayback(ctx, app.ResolvePlaybackQuery{Caller: caller, PartID: v1.PartID(env.PartID)})
+	res, err := h.svc.ResolvePlayback(ctx, app.ResolvePlaybackQuery{
+		Caller: caller, PartID: v1.PartID(env.PartID),
+		// The browser's decoding limits, stated where selection can use them.
+		// It stands in until clients declare a profile on Attach (ADR 0047) —
+		// hard-coding it here is honest for one client and would be a lie for
+		// four, which is why the declaration is the real answer.
+		Prefer: browserPreference(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -195,4 +202,21 @@ func configureFromInput(input []byte) (string, []byte, error) {
 		settings = env.Settings
 	}
 	return env.ModuleID, settings, nil
+}
+
+// browserPreference is what a desktop browser can play, in the shape selection
+// ranks on.
+//
+// It mirrors playback.DefaultBrowserCodecs and exists for the same reason: HEVC
+// is included because a live test proved Chrome decodes it, and AC3/E-AC3/DTS/
+// TrueHD are excluded because Chrome decodes none of them in any container —
+// which is the single fact that decides whether most real releases have sound.
+// Container is left unconstrained: a plain <video src> uses the browser's own
+// demuxer, which handles Matroska, so ranking against containers here would
+// reject perfectly playable releases.
+func browserPreference() app.PlaybackPreference {
+	return app.PlaybackPreference{
+		VideoCodecs: map[string]bool{"h264": true, "hevc": true, "vp9": true, "av1": true, "vp8": true},
+		AudioCodecs: map[string]bool{"aac": true, "mp3": true, "opus": true, "vorbis": true, "flac": true},
+	}
 }
