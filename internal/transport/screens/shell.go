@@ -21,11 +21,24 @@ func (s *Service) shellScreen() (sdui.Node, error) {
 			navItem("Collections", "list", screenCollections),
 			navItem("Settings", "settings", screenSettings),
 		),
-		// The search bar lives in the top bar and is always present, so there is no
-		// Search nav item. Typing takes over the content region (a live `input`);
-		// clearing it returns to the current screen.
+		// The search bar owns the centre of the top bar and is always present, so
+		// there is no Search nav item. Typing takes over the content region (a live
+		// `input`); clearing it returns to the current screen.
 		ui.Slot("topbar",
 			ui.Component("SearchBar", ui.Prop("placeholder", "Search for anime, movies, shows…")),
+		),
+		// Desktop account cluster (right of the search): a Collections link and an
+		// avatar menu holding Settings. Home is the brand; on mobile these live in
+		// the bottom tab bar (the `nav` slot) instead, so this cluster is hidden.
+		ui.Slot("account",
+			navItem("Collections", "list", screenCollections),
+			ui.Component("Menu",
+				ui.Prop("initial", "A"),
+				ui.Prop("label", "Account"),
+				ui.Prop("items", []any{
+					map[string]any{"label": "Settings", "icon": "settings", "action": ui.Navigate(screenSettings, nil)},
+				}),
+			),
 		),
 	).Build(), nil
 }

@@ -6,6 +6,7 @@ package session
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -38,6 +39,22 @@ const debounceRenderTimeout = 15 * time.Second
 // contentRegion is the named slot the current screen renders into (ADR 0031).
 // A navigate/input replaces this region; the shell frame around it persists.
 const contentRegion = "content"
+
+// definitionsLibrary is the standard SDUI component-definition library as data
+// (ADR 0024): every presentational component — Screen, AppShell, HeroBanner,
+// PosterCard, Section … — expressed as a tree of primitives. The Platform pushes
+// it to a client on connect (below), so the design system is server-owned: a
+// client ships only the primitive vocabulary + the generic expander and renders
+// whatever definitions the Platform sends. Redesigning a component is a Platform
+// change, not a client release. Regenerate with the sdui-react repo's
+// `scripts/dump-definitions.mjs` when a definition changes.
+//
+//go:embed definitions.json
+var definitionsLibrary []byte
+
+// definitionsEvent names the Event that carries the definition library. A client
+// registers its payload (a JSON array of ComponentDefinition) before rendering.
+const definitionsEvent = "sdui.definitions"
 
 // Handler implements the SessionService (ADR 0041). It owns the session store,
 // builds its own screen service (a thin projection wrapper over the application
@@ -145,6 +162,9 @@ func (h *Handler) Subscribe(ctx context.Context, req *connect.Request[sessionv1.
 		if s.currentRoute().screen == "" {
 			s.setCurrent(route{screen: "home"})
 		}
+		// The definition library must be registered before the shell or any
+		// screen that uses it renders, so it goes first on the stream (ADR 0024).
+		s.enqueue(definitionsMsg())
 		h.pushShell(ctx, s)
 		h.pushContent(ctx, s)
 	}
@@ -218,6 +238,14 @@ func regionMsg(region string, op sessionv1.RegionUpdate_Op, node sdui.Node) *ses
 
 func toastMsg(message, tone string) *sessionv1.ServerMessage {
 	return &sessionv1.ServerMessage{Body: &sessionv1.ServerMessage_Toast{Toast: &sessionv1.Toast{Message: message, Tone: tone}}}
+}
+
+// definitionsMsg carries the SDUI component-definition library (ADR 0024) as an
+// Event whose JSON payload is an array of ComponentDefinition. It is pushed once
+// on connect, before the shell, so the client can register the components any
+// screen references.
+func definitionsMsg() *sessionv1.ServerMessage {
+	return &sessionv1.ServerMessage{Body: &sessionv1.ServerMessage_Event{Event: &sessionv1.Event{Type: definitionsEvent, Payload: definitionsLibrary}}}
 }
 
 // invokeToast is the confirmation shown when an action succeeds. It reflects the

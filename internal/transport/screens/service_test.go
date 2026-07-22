@@ -338,9 +338,9 @@ func TestVirtualDetailShowsAddToLibrary(t *testing.T) {
 	if fake.gotPreviewRef.NativeID != "tt1254207" {
 		t.Fatalf("preview saw ref %+v, want the card's ref", fake.gotPreviewRef)
 	}
-	// The rich detail is a HeroBanner carrying the title, logo and the primary
-	// action; the poster docks in its aside slot (ADR 0034).
-	hero, ok := find(node, sdui.TypeHeroBanner)
+	// The rich detail is a DetailHero carrying the title, logo and the primary
+	// action; a glass info panel docks in its aside slot (ADR 0034).
+	hero, ok := find(node, "DetailHero")
 	if !ok || prop(hero, "title") != "Blade Runner 2049" {
 		t.Fatalf("hero = %+v, want the previewed title", hero.Props)
 	}
@@ -386,7 +386,7 @@ func TestInLibraryDetailShowsInLibraryMarker(t *testing.T) {
 	if fake.gotNodeID != "" {
 		t.Fatalf("in-library detail should render from metadata, not read node %q", fake.gotNodeID)
 	}
-	hero, ok := find(node, sdui.TypeHeroBanner)
+	hero, ok := find(node, "DetailHero")
 	if !ok || prop(hero, "title") != "Already Here" {
 		t.Fatalf("hero = %+v, want the metadata title", hero.Props)
 	}

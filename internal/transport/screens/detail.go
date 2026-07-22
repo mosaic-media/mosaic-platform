@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	sdui "github.com/mosaic-media/sdui/sdui"
 	"github.com/mosaic-media/sdui/ui"
@@ -51,19 +52,19 @@ func (s *Service) richDetail(ctx context.Context, caller v1.Caller, ref v1.Conte
 		title = ref.NativeID
 	}
 
-	// Hero meta pills: year · media type · runtime · rating.
+	// Meta pills: rating · year · then a runtime (film) or a "N Seasons · M
+	// Episodes" count (series).
 	var pills []string
+	if m.Rating > 0 {
+		pills = append(pills, fmt.Sprintf("★ %.1f", m.Rating))
+	}
 	if y := yearLabel(m.Year); y != "" {
 		pills = append(pills, y)
 	}
-	if mt := string(ref.MediaType); mt != "" {
-		pills = append(pills, mt)
-	}
-	if m.Runtime != "" {
+	if sc := seasonEpisodeLabel(m.Episodes); sc != "" {
+		pills = append(pills, sc)
+	} else if m.Runtime != "" {
 		pills = append(pills, m.Runtime)
-	}
-	if m.Rating > 0 {
-		pills = append(pills, fmt.Sprintf("★ %.1f", m.Rating))
 	}
 
 	// Primary action: Add to library (virtual) or an in-library marker.
@@ -75,24 +76,30 @@ func (s *Service) richDetail(ctx context.Context, caller v1.Caller, ref v1.Conte
 			ui.OnTap(ui.Invoke(importContentMutation, map[string]any{paramRef: refInput(ref)}))))
 	}
 
-	body := []ui.El{
-		ui.Hero(title,
-			ui.Backdrop(s.art(m.Backdrop)),
-			ui.Meta(pills...),
-			actions,
-			ui.When(m.Logo != "", ui.Logo(s.art(m.Logo))),
-			ui.When(m.Overview != "", ui.Overview(m.Overview)),
-			ui.When(m.Poster != "", ui.Aside(posterBox(s.art(m.Poster)))),
-		),
+	// The paneled detail hero: a full-bleed backdrop (the light source) with the
+	// title/meta/genres/overview/action in a floating GLASS panel, and a glass
+	// info panel docked beside it (the aside) — so the acrylic material has large
+	// surfaces to light. Fills the Screen's full-bleed slot.
+	heroEls := []ui.El{
+		ui.Title(title),
+		ui.Backdrop(s.art(m.Backdrop)),
+		ui.When(ref.MediaType != "", ui.Prop("kicker",
+			strings.ToUpper(strings.ReplaceAll(string(ref.MediaType), "_", " ")))),
+		ui.When(len(pills) > 0, ui.Meta(pills...)),
+		ui.When(m.Logo != "", ui.Logo(s.art(m.Logo))),
+		ui.When(m.Overview != "", ui.Overview(m.Overview)),
+		actions,
+		ui.Aside(s.detailInfoPanel(m, ref)),
 	}
-
 	if len(m.Genres) > 0 {
 		tags := make([]ui.El, 0, len(m.Genres))
 		for _, g := range m.Genres {
 			tags = append(tags, ui.GenreTag(g))
 		}
-		body = append(body, ui.Section("Genres", ui.Stack("horizontal", 2, tags...)))
+		heroEls = append(heroEls, ui.Prop("showTags", true), ui.Slot("tags", tags...))
 	}
+
+	body := []ui.El{ui.Slot("bleed", ui.Component("DetailHero", heroEls...))}
 
 	if len(m.Cast) > 0 {
 		chips := make([]ui.El, 0, len(m.Cast))
@@ -106,7 +113,70 @@ func (s *Service) richDetail(ctx context.Context, caller v1.Caller, ref v1.Conte
 		body = append(body, s.episodesSection(ref, m.Episodes, params))
 	}
 
-	return ui.Screen(ui.Title(title), ui.Group(body...)).Build(), nil
+	return ui.Screen(ui.Group(body...)).Build(), nil
+}
+
+// detailInfoPanel builds the glass info aside that docks beside the hero panel:
+// a large rating, then label/value rows drawn from the metadata Mosaic actually
+// has (type, year, episodes/runtime, genres). It renders as an acrylic panel.
+func (s *Service) detailInfoPanel(m v1.ContentMetadata, ref v1.ContentRef) ui.El {
+	els := []ui.El{}
+	if m.Rating > 0 {
+		els = append(els, ui.Prop("rating", fmt.Sprintf("%.1f", m.Rating)), ui.Prop("ratingLabel", "Rating"))
+	}
+	rows := make([]map[string]any, 0, 4)
+	row := func(label, value string) {
+		if value != "" {
+			rows = append(rows, map[string]any{"label": label, "value": value})
+		}
+	}
+	if mt := string(ref.MediaType); mt != "" {
+		row("Type", titleWords(mt))
+	}
+	row("Year", yearLabel(m.Year))
+	if len(m.Episodes) > 0 {
+		row("Episodes", fmt.Sprintf("%d", len(m.Episodes)))
+	} else {
+		row("Runtime", m.Runtime)
+	}
+	if len(m.Genres) > 0 {
+		row("Genres", strings.Join(m.Genres, ", "))
+	}
+	els = append(els, ui.Prop("rows", rows))
+	return ui.Component("InfoPanel", els...)
+}
+
+// titleWords title-cases an underscored/spaced token ("tv_series" → "Tv Series")
+// for display, replacing the deprecated strings.Title for this small use.
+func titleWords(s string) string {
+	words := strings.Fields(strings.ReplaceAll(s, "_", " "))
+	for i, w := range words {
+		if w != "" {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// seasonEpisodeLabel renders a series' "2 Seasons · 19 Episodes" summary from
+// its episode preview, counting distinct seasons and total episodes. It is empty
+// for a film (no episodes), letting the caller fall back to a runtime pill.
+func seasonEpisodeLabel(episodes []v1.EpisodePreview) string {
+	if len(episodes) == 0 {
+		return ""
+	}
+	seasons := make(map[int]struct{}, 4)
+	for _, e := range episodes {
+		seasons[e.Season] = struct{}{}
+	}
+	seasonWord, episodeWord := "Seasons", "Episodes"
+	if len(seasons) == 1 {
+		seasonWord = "Season"
+	}
+	if len(episodes) == 1 {
+		episodeWord = "Episode"
+	}
+	return fmt.Sprintf("%d %s · %d %s", len(seasons), seasonWord, len(episodes), episodeWord)
 }
 
 // episodesSection builds a series' episode browser: a SeasonSelector across the
@@ -160,19 +230,6 @@ func (s *Service) episodesSection(ref v1.ContentRef, episodes []v1.EpisodePrevie
 		))
 	}
 	return ui.Section("Episodes", selector, ui.Stack("vertical", 3, rows...))
-}
-
-// posterBox docks a poster image (its natural 2:3) into a hero's aside slot.
-func posterBox(url string) *ui.Element {
-	return ui.Component("Box",
-		ui.Prop("style", map[string]any{
-			"width": 168, "aspectRatio": "2 / 3", "radius": "md",
-			"overflow": "hidden", "bg": "surface-raised", "shadow": "2",
-		}),
-		ui.Component("Image",
-			ui.Prop("src", url), ui.Prop("placeholder", " "),
-			ui.Prop("style", map[string]any{"width": "full", "height": "full"})),
-	)
 }
 
 // libraryDetail renders a materialised node: its header, and its direct children

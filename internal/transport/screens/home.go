@@ -19,6 +19,9 @@ import (
 const (
 	homeMaxRows     = 6
 	homeMaxRowItems = 20
+	// homeUpNextItems bounds the "Up next" filmstrip docked on the hero floor —
+	// the items neighbouring the featured one, drawn from the same first catalog.
+	homeUpNextItems = 8
 )
 
 // homeScreen is the default landing surface: a hero over rows of the enabled
@@ -63,20 +66,32 @@ func (s *Service) homeScreen(ctx context.Context, caller v1.Caller) (sdui.Node, 
 	}
 	wg.Wait()
 
-	// Assemble the page as a widget tree: the hero from the first non-empty
-	// catalog's first item (one further round-trip to enrich it), then a carousel
-	// row per non-empty catalog.
-	body := make([]ui.El, 0, len(catalogs)+1)
-	heroAdded := false
+	// Assemble the page as a widget tree. The featured banner comes from the
+	// first non-empty catalog's first item (one further round-trip to enrich it),
+	// spanning the Screen's full-bleed slot with an "Up next" filmstrip of its
+	// neighbours docked on its floor; then a carousel row per non-empty catalog.
+	rows := make([]ui.El, 0, len(catalogs)+1)
+	var hero, upNext ui.El
 	for i, c := range catalogs {
 		items := itemsByCatalog[i].Items
 		if len(items) == 0 {
 			continue
 		}
-		if !heroAdded {
-			if hero := s.heroFromItem(ctx, caller, items[0]); hero != nil {
-				body = append(body, hero)
-				heroAdded = true
+		if hero == nil {
+			if h := s.heroFromItem(ctx, caller, items[0], c.Catalog.Name); h != nil {
+				hero = ui.Slot("bleed", h)
+				// "Trending now" — the items neighbouring the featured one — leads
+				// the library as a rail of glass MediaTiles, the showcase row for
+				// the acrylic material (the edge light tracks the hero art across
+				// the row). Library rows below stay plain PosterCards.
+				upCards := make([]ui.El, 0, homeUpNextItems)
+				for j := 1; j < len(items) && j <= homeUpNextItems; j++ {
+					it := items[j]
+					upCards = append(upCards, s.mediaTile(it.Ref, it.Title, it.Year, it.Poster, it.InLibrary))
+				}
+				if len(upCards) > 0 {
+					upNext = ui.Section("Trending now", ui.Carousel(upCards...))
+				}
 			}
 		}
 		cards := make([]ui.El, 0, homeMaxRowItems)
@@ -86,19 +101,33 @@ func (s *Service) homeScreen(ctx context.Context, caller v1.Caller) (sdui.Node, 
 			}
 			cards = append(cards, s.contentCard(it.Ref, it.Title, it.Year, it.Poster, it.InLibrary))
 		}
-		body = append(body, ui.Section(c.Catalog.Name, ui.Carousel(cards...)))
+		rows = append(rows, ui.Section(c.Catalog.Name, ui.Carousel(cards...)))
 	}
-	if len(body) == 0 {
+	if len(rows) == 0 {
 		return ui.Screen(ui.EmptyState(emptyIconCollections,
 			"Nothing to show yet — try adding an addon in Settings")).Build(), nil
 	}
-	return ui.Screen(body...).Build(), nil
+
+	// The hero fills the Screen's full-bleed slot (edge to edge, above the
+	// gutter-padded library rows), then "Up next", then a row per catalog. When
+	// metadata enrichment failed there is no hero and the rows stand alone.
+	screenEls := make([]ui.El, 0, len(rows)+2)
+	if hero != nil {
+		screenEls = append(screenEls, hero)
+	}
+	if upNext != nil {
+		screenEls = append(screenEls, upNext)
+	}
+	screenEls = append(screenEls, rows...)
+	return ui.Screen(screenEls...).Build(), nil
 }
 
-// heroFromItem builds a home hero from a catalog item, enriching it with the
-// backdrop, logo and overview its lightweight card lacks (ADR 0034). A metadata
-// fetch that fails just yields no hero (nil) rather than failing the home screen.
-func (s *Service) heroFromItem(ctx context.Context, caller v1.Caller, it v1.CatalogItem) *ui.Element {
+// heroFromItem builds the home's featured banner from a catalog item, enriching
+// it with the backdrop, logo and overview its lightweight card lacks (ADR 0034).
+// It is full-bleed and tagged with the catalog it leads (the `kicker`). A
+// metadata fetch that fails just yields no hero (nil) rather than failing the
+// home screen.
+func (s *Service) heroFromItem(ctx context.Context, caller v1.Caller, it v1.CatalogItem, kicker string) *ui.Element {
 	prev, err := s.content.PreviewContent(ctx, app.PreviewContentQuery{Caller: caller, Ref: it.Ref})
 	if err != nil {
 		return nil
@@ -117,14 +146,21 @@ func (s *Service) heroFromItem(ctx context.Context, caller v1.Caller, it v1.Cata
 		pills = append(pills, fmt.Sprintf("★ %.1f", m.Rating))
 	}
 
+	ref := map[string]any{paramRef: refInput(it.Ref)}
 	return ui.Hero(title,
+		ui.Prop("variant", "feature"),
+		ui.When(kicker != "", ui.Prop("kicker", kicker)),
 		ui.Backdrop(s.art(m.Backdrop)),
 		ui.When(m.Logo != "", ui.Logo(s.art(m.Logo))),
 		ui.When(m.Overview != "", ui.Overview(m.Overview)),
 		ui.When(len(pills) > 0, ui.Meta(pills...)),
 		ui.Actions(
 			ui.Button("View", "primary",
-				ui.OnTap(ui.Navigate(screenDetail, map[string]any{paramRef: refInput(it.Ref)}))),
+				ui.OnTap(ui.Navigate(screenDetail, ref))),
+			// The featured item is browsable but not yet in the library — offer the
+			// same add affordance the detail screen carries (ADR 0028).
+			ui.When(!it.InLibrary, ui.Button("Add to library", "secondary",
+				ui.OnTap(ui.Invoke(importContentMutation, ref)))),
 		),
 	)
 }
