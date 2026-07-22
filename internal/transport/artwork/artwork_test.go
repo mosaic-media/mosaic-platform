@@ -6,6 +6,8 @@ package artwork
 
 import (
 	"net"
+
+	"github.com/mosaic-media/platform/internal/transport/netguard"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -62,7 +64,7 @@ func TestBlockedAddresses(t *testing.T) {
 		"1.1.1.1":         false, // public
 	}
 	for ipStr, want := range cases {
-		if got := blocked(net.ParseIP(ipStr)); got != want {
+		if got := netguard.Blocked(net.ParseIP(ipStr)); got != want {
 			t.Errorf("blocked(%s) = %v, want %v", ipStr, got, want)
 		}
 	}

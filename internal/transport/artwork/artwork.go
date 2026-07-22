@@ -22,18 +22,16 @@
 package artwork
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/mosaic-media/platform/internal/transport/netguard"
 )
 
 // maxImageBytes caps a proxied response so a hostile source cannot stream an
@@ -89,7 +87,7 @@ func (s *Signer) Rewrite(raw string) string {
 func GuardedClient() *http.Client {
 	return &http.Client{
 		Timeout:   15 * time.Second,
-		Transport: &http.Transport{DialContext: guardedDial},
+		Transport: &http.Transport{DialContext: netguard.DialContext},
 	}
 }
 
@@ -135,37 +133,4 @@ func Handler(signer *Signer, client *http.Client) http.Handler {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		_, _ = io.Copy(w, io.LimitReader(resp.Body, maxImageBytes))
 	})
-}
-
-// errBlockedAddress is returned by the dial guard for a non-routable target.
-var errBlockedAddress = errors.New("artwork: refusing to connect to a non-public address")
-
-// guardedDial dials only public addresses. The Control hook runs after DNS with
-// the concrete address about to be connected, so a hostname that resolves (or
-// re-resolves) to a private range is caught here, closing the SSRF/DNS-rebinding
-// hole a plain proxy would leave open.
-func guardedDial(ctx context.Context, network, address string) (net.Conn, error) {
-	d := &net.Dialer{
-		Timeout: 10 * time.Second,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			ip := net.ParseIP(host)
-			if ip == nil || blocked(ip) {
-				return errBlockedAddress
-			}
-			return nil
-		},
-	}
-	return d.DialContext(ctx, network, address)
-}
-
-// blocked reports whether an IP is one the proxy must not reach: loopback,
-// private, link-local (incl. the cloud metadata address 169.254.169.254),
-// unspecified, or otherwise not global-unicast.
-func blocked(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || !ip.IsGlobalUnicast()
 }

@@ -24,7 +24,6 @@ import (
 	"github.com/mosaic-media/platform/internal/adapters/crypto"
 	"github.com/mosaic-media/platform/internal/composition/bootstrap"
 	"github.com/mosaic-media/platform/internal/composition/builtin"
-	"github.com/mosaic-media/sdui/gen/mosaic/session/v1/sessionv1connect"
 	"github.com/mosaic-media/platform/internal/modules/postgres"
 	"github.com/mosaic-media/platform/internal/platform/app"
 	"github.com/mosaic-media/platform/internal/platform/config"
@@ -36,7 +35,9 @@ import (
 	"github.com/mosaic-media/platform/internal/transport/artwork"
 	graphqltransport "github.com/mosaic-media/platform/internal/transport/graphql"
 	"github.com/mosaic-media/platform/internal/transport/health"
+	"github.com/mosaic-media/platform/internal/transport/playback"
 	"github.com/mosaic-media/platform/internal/transport/session"
+	"github.com/mosaic-media/sdui/gen/mosaic/session/v1/sessionv1connect"
 )
 
 // postgresDSNEnv names the environment variable carrying the PostgreSQL
@@ -238,6 +239,7 @@ func run() error {
 		Config:           set.Config,
 		Permissions:      set.Permissions,
 		Nodes:            set.Nodes,
+		Parts:            set.Parts,
 		Clock:            set.Clock,
 		IDs:              set.IDs,
 		ContentIDs:       set.ContentIDs,
@@ -256,6 +258,21 @@ func run() error {
 		return fmt.Errorf("generate artwork key failed: %w", err)
 	}
 	artworkSigner := artwork.NewSigner(artworkKey)
+
+	// The playback origin (ADR 0045) relays a resolved stream from the
+	// Platform's own origin, so a client never holds the upstream URL — which
+	// for a debrid link carries a credential. Its key is process-scoped for the
+	// same reason the artwork signer's is, and more so: a ticket is minted when
+	// playback starts and a restart re-resolves rather than replaying a stale
+	// upstream.
+	playbackKey := make([]byte, 32)
+	if _, err := rand.Read(playbackKey); err != nil {
+		return fmt.Errorf("generate playback key failed: %w", err)
+	}
+	playbackSealer, err := playback.NewSealer(playbackKey)
+	if err != nil {
+		return fmt.Errorf("build playback sealer failed: %w", err)
+	}
 
 	schema, err := graphqltransport.NewSchema(svc, artworkSigner.Rewrite)
 	if err != nil {
@@ -328,6 +345,7 @@ func run() error {
 	apiMux := http.NewServeMux()
 	apiMux.Handle("/graphql", graphqltransport.Handler(schema))
 	apiMux.Handle("/artwork", artwork.Handler(artworkSigner, artwork.GuardedClient()))
+	apiMux.Handle("/playback/", playback.Handler(playbackSealer, playback.Client()))
 	apiMux.Handle(sessionPath, sessionConnect)
 	// Serve the API over h2c (cleartext HTTP/2) so the two session lanes —
 	// concurrent unary intents and the long-lived Subscribe stream — multiplex

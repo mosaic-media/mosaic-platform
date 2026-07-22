@@ -31,6 +31,7 @@ type Service struct {
 	permissions      contracts.PermissionStore
 	moduleSettings   contracts.ModuleSettingsStore
 	nodes            contracts.NodeStore
+	parts            contracts.PartStore
 	clock            contracts.Clock
 	ids              contracts.IDGenerator
 	contentIDs       contracts.IDGenerator
@@ -58,9 +59,13 @@ type Deps struct {
 	// Sessions/Users/Credentials — used by read-only queries
 	// (GetActiveConfigVersion, GetRolesForUser, …) that must not open a
 	// UnitOfWork.
-	Config           contracts.ConfigStore
-	Permissions      contracts.PermissionStore
-	Nodes            contracts.NodeStore
+	Config      contracts.ConfigStore
+	Permissions contracts.PermissionStore
+	Nodes       contracts.NodeStore
+	// Parts is the direct read handle for an item's playable parts. Writes
+	// still go through the UnitOfWork; this exists because playback resolution
+	// is a read that must not open a transaction (ADR 0045).
+	Parts            contracts.PartStore
 	Clock            contracts.Clock
 	IDs              contracts.IDGenerator
 	ContentIDs       contracts.IDGenerator
@@ -83,6 +88,7 @@ func NewService(d Deps) *Service {
 		permissions:      d.Permissions,
 		moduleSettings:   d.ModuleSettings,
 		nodes:            d.Nodes,
+		parts:            d.Parts,
 		clock:            d.Clock,
 		ids:              d.IDs,
 		contentIDs:       d.ContentIDs,

@@ -89,6 +89,9 @@ func roleImplemented(c v1.Capability, role v1.Role) bool {
 	case v1.RoleSubtitles:
 		_, ok := c.(v1.SubtitlesProvider)
 		return ok
+	case v1.RolePlayback:
+		_, ok := c.(v1.PlaybackProvider)
+		return ok
 	case v1.RoleSettingsUI:
 		_, ok := c.(v1.SettingsUIProvider)
 		return ok
@@ -177,6 +180,42 @@ func (r *CapabilityRegistry) SettingsUIProvider(id string) (v1.SettingsUIProvide
 		return nil, false
 	}
 	p, ok := c.(v1.SettingsUIProvider)
+	return p, ok
+}
+
+// PlaybackProviderEntry pairs a playback-capable module's id with its provider,
+// so a caller can read the module's settings before invoking it.
+type PlaybackProviderEntry struct {
+	ModuleID string
+	Provider v1.PlaybackProvider
+}
+
+// PlaybackProviders returns every registered capability that fills RolePlayback
+// (ADR 0045), in stable module-id order. It is the first *consumer* enumeration
+// here — every other one above resolves a source.
+//
+// It returns a list rather than the single provider today's install has because
+// the question it answers has two callers with different needs: playback
+// resolution wants one provider, and ADR 0036's affordance gate wants to know
+// whether *any* consumer is installed.
+func (r *CapabilityRegistry) PlaybackProviders() []PlaybackProviderEntry {
+	var out []PlaybackProviderEntry
+	for _, id := range r.sortedIDs() {
+		if p, ok := r.byID[id].(v1.PlaybackProvider); ok {
+			out = append(out, PlaybackProviderEntry{ModuleID: id, Provider: p})
+		}
+	}
+	return out
+}
+
+// PlaybackProvider returns the playback provider registered under id, if that
+// capability fills RolePlayback.
+func (r *CapabilityRegistry) PlaybackProvider(id string) (v1.PlaybackProvider, bool) {
+	c, ok := r.byID[id]
+	if !ok {
+		return nil, false
+	}
+	p, ok := c.(v1.PlaybackProvider)
 	return p, ok
 }
 
