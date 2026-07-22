@@ -61,6 +61,7 @@ type Logger struct {
 	resource  Resource
 	component string
 	module    string
+	trace     TraceContext
 	bound     []Field
 	min       Level
 	clock     func() time.Time
@@ -95,6 +96,17 @@ func (l *Logger) ForModule(component, module string) *Logger {
 	d := l.derive()
 	d.component = component
 	d.module = module
+	return d
+}
+
+// WithTrace returns a Logger whose records carry tc. The trace and span ids
+// are first-class columns on a record rather than ordinary fields, because
+// they are what the telemetry store indexes and what the expert-mode viewer
+// joins on (ADR 0058) — burying them in a field map would make the one query
+// that matters most the awkward one.
+func (l *Logger) WithTrace(tc TraceContext) *Logger {
+	d := l.derive()
+	d.trace = tc
 	return d
 }
 
@@ -152,5 +164,6 @@ func (l *Logger) emit(level Level, message string, fields []Field) {
 		Message:   message,
 		Fields:    all,
 		Resource:  l.resource,
+		Trace:     l.trace,
 	})
 }

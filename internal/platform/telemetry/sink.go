@@ -25,6 +25,7 @@ type Record struct {
 	Message   string
 	Fields    []Field
 	Resource  Resource
+	Trace     TraceContext
 }
 
 // Sink receives records. An implementation must be safe for concurrent use and
@@ -42,6 +43,8 @@ type entry struct {
 	Service   string         `json:"service,omitempty"`
 	Instance  string         `json:"instance,omitempty"`
 	Boot      string         `json:"boot,omitempty"`
+	Trace     string         `json:"trace,omitempty"`
+	Span      string         `json:"span,omitempty"`
 	Component string         `json:"component,omitempty"`
 	Module    string         `json:"module,omitempty"`
 	Message   string         `json:"message"`
@@ -92,6 +95,8 @@ func (s *JSONSink) Write(r Record) {
 		Service:   r.Resource.ServiceName,
 		Instance:  r.Resource.InstanceID,
 		Boot:      r.Resource.BootID,
+		Trace:     r.Trace.TraceIDString(),
+		Span:      r.Trace.SpanIDString(),
 		Component: r.Component,
 		Module:    r.Module,
 		Message:   r.Message,
@@ -131,6 +136,14 @@ func (s *ConsoleSink) Write(r Record) {
 	var b strings.Builder
 	b.WriteString(r.Level.String())
 	b.WriteByte(' ')
+	// A short trace prefix, so two lines from one request are recognisable as
+	// such by eye at a terminal. The full id is in the JSON sink; eight
+	// characters is enough to spot a pair and short enough not to dominate.
+	if id := r.Trace.TraceIDString(); id != "" {
+		b.WriteByte('[')
+		b.WriteString(id[:8])
+		b.WriteString("] ")
+	}
 	if r.Component != "" {
 		b.WriteString(r.Component)
 		if r.Module != "" {

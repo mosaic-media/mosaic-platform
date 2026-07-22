@@ -70,7 +70,7 @@ func (s *Service) RevokeSession(ctx context.Context, cmd RevokeSessionCommand) (
 		}
 
 		// 7. persist state and outbox events in the same transaction.
-		event := domain.OutboxEvent{Event: s.newEvent("session.revoked", []byte(string(cmd.TargetSessionID)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "session.revoked", []byte(string(cmd.TargetSessionID)), string(callerID))}
 		return tx.Outbox().Append(ctx, event)
 	})
 	if err != nil {

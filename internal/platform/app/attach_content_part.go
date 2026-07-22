@@ -102,7 +102,7 @@ func (s *Service) AttachContentPart(ctx context.Context, cmd v1.AttachContentPar
 			return err
 		}
 		if err := tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent("content.part.attached", []byte(string(created.ID)), string(callerID)),
+			Event: s.newEvent(ctx, "content.part.attached", []byte(string(created.ID)), string(callerID)),
 		}); err != nil {
 			return err
 		}

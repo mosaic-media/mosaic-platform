@@ -83,7 +83,7 @@ func (s *Service) SetUserStatus(ctx context.Context, cmd SetUserStatusCommand) (
 		if err != nil {
 			return err
 		}
-		event := domain.OutboxEvent{Event: s.newEvent("user.status_changed", []byte(string(cmd.Status)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "user.status_changed", []byte(string(cmd.Status)), string(callerID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}

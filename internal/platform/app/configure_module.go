@@ -85,7 +85,7 @@ func (s *Service) ConfigureModule(ctx context.Context, cmd ConfigureModuleComman
 			return err
 		}
 		return tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent("module.configured", []byte(cmd.ModuleID), string(callerID)),
+			Event: s.newEvent(ctx, "module.configured", []byte(cmd.ModuleID), string(callerID)),
 		})
 	})
 	if err != nil {

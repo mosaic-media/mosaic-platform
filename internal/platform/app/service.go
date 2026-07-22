@@ -12,6 +12,7 @@ import (
 	"github.com/mosaic-media/platform/internal/platform/domain"
 	"github.com/mosaic-media/platform/internal/platform/policy"
 	"github.com/mosaic-media/platform/internal/platform/sessions"
+	"github.com/mosaic-media/platform/internal/platform/telemetry"
 	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 )
 
@@ -146,14 +147,25 @@ func (s *Service) authorize(ctx context.Context, subject policy.Subject, action 
 // OccurredAt and RecordedAt coincide. Audit events carry identifying data
 // (usernames, session ids), so they default to RedactionSensitive — redacted
 // from support bundles.
-func (s *Service) newEvent(eventType string, payload []byte, actor string) domain.Event {
+func (s *Service) newEvent(ctx context.Context, eventType string, payload []byte, actor string) domain.Event {
 	now := s.clock.Now()
+	// CorrelationID and CausationID carried a "empty until request-scoped
+	// propagation exists" note from the day the envelope was written. This is
+	// that propagation (ADR 0054): the correlation id is the trace id, so an
+	// event row, the log lines around it, and the span that produced it share
+	// one key — and no second identifier had to be invented to get there.
+	//
+	// A context with no trace yields empty ids, exactly as before. Background
+	// work that has no request behind it should not manufacture one.
+	tc, _ := telemetry.TraceFrom(ctx)
 	return domain.Event{
 		ID:             domain.EventID(s.ids.NewID()),
 		Type:           eventType,
 		OccurredAt:     now,
 		RecordedAt:     now,
 		Actor:          actor,
+		CorrelationID:  tc.TraceIDString(),
+		CausationID:    tc.SpanIDString(),
 		Payload:        payload,
 		RedactionClass: domain.RedactionSensitive,
 	}
@@ -164,5 +176,5 @@ func (s *Service) newEvent(eventType string, payload []byte, actor string) domai
 // must never mask the authorization or authentication outcome that
 // triggered it, so the error is intentionally discarded.
 func (s *Service) publishAuditEvent(ctx context.Context, eventType string, payload []byte, actor string) {
-	_ = s.events.Publish(ctx, s.newEvent(eventType, payload, actor))
+	_ = s.events.Publish(ctx, s.newEvent(ctx, eventType, payload, actor))
 }

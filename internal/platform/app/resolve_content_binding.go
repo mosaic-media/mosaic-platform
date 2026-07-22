@@ -93,7 +93,7 @@ func (s *Service) ResolveContentBinding(ctx context.Context, cmd v1.ResolveConte
 			return err
 		}
 		if err := tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent("content.binding.resolved", []byte(string(updated.ID)), string(callerID)),
+			Event: s.newEvent(ctx, "content.binding.resolved", []byte(string(updated.ID)), string(callerID)),
 		}); err != nil {
 			return err
 		}

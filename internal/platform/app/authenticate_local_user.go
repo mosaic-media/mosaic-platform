@@ -105,7 +105,7 @@ func (s *Service) AuthenticateLocalUser(ctx context.Context, cmd AuthenticateLoc
 		}
 
 		// 7. persist state and outbox events in the same transaction.
-		event := domain.OutboxEvent{Event: s.newEvent("authentication.succeeded", []byte(cmd.Username), string(user.ID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "authentication.succeeded", []byte(cmd.Username), string(user.ID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}

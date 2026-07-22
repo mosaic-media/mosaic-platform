@@ -73,7 +73,7 @@ func (s *Service) CreateRole(ctx context.Context, cmd CreateRoleCommand) (Create
 			return err
 		}
 		if err := tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent("role.created", []byte(string(created.ID)), string(callerID)),
+			Event: s.newEvent(ctx, "role.created", []byte(string(created.ID)), string(callerID)),
 		}); err != nil {
 			return err
 		}

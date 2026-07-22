@@ -71,7 +71,7 @@ func (s *Service) GrantRole(ctx context.Context, cmd GrantRoleCommand) (GrantRol
 			return err
 		}
 		return tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent("role.granted", []byte(string(cmd.UserID)), string(callerID)),
+			Event: s.newEvent(ctx, "role.granted", []byte(string(cmd.UserID)), string(callerID)),
 		})
 	})
 	if err != nil {

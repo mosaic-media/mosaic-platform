@@ -71,7 +71,7 @@ func (s *Service) DraftConfigVersion(ctx context.Context, cmd DraftConfigVersion
 		}
 
 		// 7. persist state and outbox events in the same transaction.
-		event := domain.OutboxEvent{Event: s.newEvent("config.drafted", []byte(string(version.ID)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "config.drafted", []byte(string(version.ID)), string(callerID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}

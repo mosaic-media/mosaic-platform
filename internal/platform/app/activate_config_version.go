@@ -84,7 +84,7 @@ func (s *Service) ActivateConfigVersion(ctx context.Context, cmd ActivateConfigV
 		if outcome.Activated {
 			eventType = "config.activated"
 		}
-		event := domain.OutboxEvent{Event: s.newEvent(eventType, []byte(string(outcome.Version.ID)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, eventType, []byte(string(outcome.Version.ID)), string(callerID))}
 		return tx.Outbox().Append(ctx, event)
 	})
 	if err != nil {

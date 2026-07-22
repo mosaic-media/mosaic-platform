@@ -117,7 +117,7 @@ func (s *Service) CreateLocalUser(ctx context.Context, cmd CreateLocalUserComman
 
 		// The actor is the authorized caller who created the account, not the
 		// new user.
-		event := domain.OutboxEvent{Event: s.newEvent("user.created", []byte(created.Username), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "user.created", []byte(created.Username), string(callerID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}

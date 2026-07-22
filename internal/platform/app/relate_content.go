@@ -90,7 +90,7 @@ func (s *Service) RelateContent(ctx context.Context, cmd v1.RelateContentCommand
 			return err
 		}
 		if err := tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent("content.relation.created", []byte(string(created.ID)), string(callerID)),
+			Event: s.newEvent(ctx, "content.relation.created", []byte(string(created.ID)), string(callerID)),
 		}); err != nil {
 			return err
 		}

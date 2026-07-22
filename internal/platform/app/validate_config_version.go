@@ -75,7 +75,7 @@ func (s *Service) ValidateConfigVersion(ctx context.Context, cmd ValidateConfigV
 		if version.Status == domain.ConfigRejected {
 			eventType = "config.rejected"
 		}
-		event := domain.OutboxEvent{Event: s.newEvent(eventType, []byte(string(version.ID)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, eventType, []byte(string(version.ID)), string(callerID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}

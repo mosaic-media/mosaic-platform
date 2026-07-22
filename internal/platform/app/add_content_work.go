@@ -84,7 +84,7 @@ func (s *Service) AddContentWork(ctx context.Context, cmd v1.AddContentWorkComma
 			return err
 		}
 		if err := tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent("content.work.created", []byte(string(created.ID)), string(callerID)),
+			Event: s.newEvent(ctx, "content.work.created", []byte(string(created.ID)), string(callerID)),
 		}); err != nil {
 			return err
 		}

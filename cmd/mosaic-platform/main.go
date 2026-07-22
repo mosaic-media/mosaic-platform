@@ -11,12 +11,14 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect"
 	remoteplayback "github.com/mosaic-media/module-remote-playback"
 	stremio "github.com/mosaic-media/module-stremio-addons"
 	"golang.org/x/net/http2"
@@ -417,7 +419,21 @@ func run() error {
 	if healthAddr == "" {
 		healthAddr = defaultHealthAddr
 	}
-	httpServer := &http.Server{Addr: healthAddr, Handler: handoff.Mux()}
+	// Request contexts do NOT descend from serveCtx — net/http builds them from
+	// BaseContext, which defaults to context.Background(). Without this, every
+	// handler's telemetry.From(ctx) returns the no-op logger and the whole
+	// edge-seeding story silently writes nothing. It is deliberately a separate
+	// context from serveCtx rather than serveCtx itself: serveCtx is cancelled
+	// by the shutdown signal, and using it here would abort in-flight requests
+	// at exactly the moment graceful shutdown is trying to let them finish.
+	requestCtx := telemetry.Into(context.Background(), root)
+	baseContext := func(net.Listener) context.Context { return requestCtx }
+
+	httpServer := &http.Server{
+		Addr:        healthAddr,
+		Handler:     telemetry.HTTPMuxMiddleware("handoff", handoff.Mux()),
+		BaseContext: baseContext,
+	}
 
 	apiAddr := os.Getenv(apiAddrEnv)
 	if apiAddr == "" {
@@ -430,18 +446,31 @@ func run() error {
 	// the hot client path.
 	sessionHandler := session.NewHandler(svc, artworkSigner.Rewrite, playbackSealer, playbackProber)
 	sessionHandler.Manager().StartReaper(serveCtx)
-	sessionPath, sessionConnect := sessionv1connect.NewSessionServiceHandler(sessionHandler)
+	// The session interceptor is the first and most important edge seam
+	// (ADR 0055): it is where a user's action enters the Platform, so it is
+	// where the Shell's trace is continued and where everything downstream —
+	// handlers, application services, modules — inherits its telemetry.
+	sessionPath, sessionConnect := sessionv1connect.NewSessionServiceHandler(
+		sessionHandler,
+		connect.WithInterceptors(session.TelemetryInterceptor()),
+	)
 
 	apiMux := http.NewServeMux()
-	apiMux.Handle("/graphql", graphqltransport.Handler(schema))
-	apiMux.Handle("/artwork", artwork.Handler(artworkSigner, artwork.GuardedClient()))
-	apiMux.Handle("/playback/", playback.Handler(playbackSealer, playback.Client(), playbackRemuxer))
+	// Each plain-HTTP surface is wrapped at its own seam and names itself, so a
+	// record says which surface produced it rather than only that it was HTTP.
+	apiMux.Handle("/graphql", telemetry.HTTPMiddleware("graphql", graphqltransport.Handler(schema)))
+	apiMux.Handle("/artwork", telemetry.HTTPMiddleware("artwork", artwork.Handler(artworkSigner, artwork.GuardedClient())))
+	apiMux.Handle("/playback/", telemetry.HTTPMiddleware("playback", playback.Handler(playbackSealer, playback.Client(), playbackRemuxer)))
 	apiMux.Handle(sessionPath, sessionConnect)
 	// Serve the API over h2c (cleartext HTTP/2) so the two session lanes —
 	// concurrent unary intents and the long-lived Subscribe stream — multiplex
 	// onto one connection (ADR 0041); Connect still degrades to HTTP/1.1 for the
 	// GraphQL and artwork handlers.
-	apiServer := &http.Server{Addr: apiAddr, Handler: h2c.NewHandler(apiMux, &http2.Server{})}
+	apiServer := &http.Server{
+		Addr:        apiAddr,
+		Handler:     h2c.NewHandler(apiMux, &http2.Server{}),
+		BaseContext: baseContext,
+	}
 	// On graceful shutdown, close every session so its Subscribe stream ends and
 	// the client reconnects rather than erroring (ADR 0041 stream resume, as
 	// ADR 0032's "going away" close did for the socket).
