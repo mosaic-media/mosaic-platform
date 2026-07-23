@@ -112,6 +112,12 @@ type contentQueries interface {
 	// whether this viewer already started this item before it can decide
 	// whether its primary action says Play or Resume.
 	GetPlaybackState(context.Context, v1.GetPlaybackStateQuery) (v1.GetPlaybackStateResult, error)
+	// ListInProgress backs the home's continue-watching rail (ADR 0046): the
+	// items this viewer started and did not finish, most recently touched first.
+	ListInProgress(context.Context, v1.ListInProgressQuery) (v1.ListInProgressResult, error)
+	// ListPlaybackStates backs the watched marks on a season's episode rows — one
+	// batched read over the season's nodes rather than a query per row.
+	ListPlaybackStates(context.Context, v1.ListPlaybackStatesQuery) (v1.ListPlaybackStatesResult, error)
 
 	// The expert-mode reads (ADR 0058). Each authorises telemetry.read for
 	// itself, so a screen calling one cannot be reached without the grant even

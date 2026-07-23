@@ -7,6 +7,7 @@ package screens
 import (
 	"context"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"testing"
@@ -38,6 +39,16 @@ type fakeQueries struct {
 	previewInLibrary bool
 	previewNodeID    v1.NodeID
 	settingsUI       []byte
+
+	// inProgress is what ListInProgress reports — the continue-watching rail's
+	// input. playbackStates is what ListPlaybackStates reports for the watched
+	// marks; the fake returns the whole map and lets the caller pick the ids.
+	inProgress     []v1.InProgressItem
+	playbackStates map[v1.NodeID]v1.PlaybackState
+	// childrenByNode, when set for a node id, is what GetContentNode returns as
+	// that node's children — so a tree walk (series → seasons → episodes) can be
+	// exercised. Absent an entry, GetContentNode falls back to the flat children.
+	childrenByNode map[v1.NodeID][]v1.Node
 
 	// canReadTelemetry is what CallerCan reports — the fake's way of saying
 	// "this caller holds telemetry.read", which is what decides whether the
@@ -114,6 +125,11 @@ func (f *fakeQueries) GetContentNode(_ context.Context, q v1.GetContentNodeQuery
 	f.mu.Lock()
 	f.gotNodeID = q.NodeID
 	f.mu.Unlock()
+	if kids, ok := f.childrenByNode[q.NodeID]; ok {
+		node := f.node
+		node.ID = q.NodeID
+		return v1.GetContentNodeResult{Node: node, Children: kids}, nil
+	}
 	return v1.GetContentNodeResult{Node: f.node, Children: f.children}, nil
 }
 
@@ -138,6 +154,18 @@ func (f *fakeQueries) GetPlaybackState(_ context.Context, _ v1.GetPlaybackStateQ
 		return v1.GetPlaybackStateResult{}, nil
 	}
 	return v1.GetPlaybackStateResult{State: f.playbackState, Found: true}, nil
+}
+
+func (f *fakeQueries) ListInProgress(_ context.Context, _ v1.ListInProgressQuery) (v1.ListInProgressResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return v1.ListInProgressResult{Items: f.inProgress}, nil
+}
+
+func (f *fakeQueries) ListPlaybackStates(_ context.Context, _ v1.ListPlaybackStatesQuery) (v1.ListPlaybackStatesResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return v1.ListPlaybackStatesResult{States: f.playbackStates}, nil
 }
 
 func (f *fakeQueries) PreviewContent(_ context.Context, q app.PreviewContentQuery) (app.PreviewContentResult, error) {
@@ -304,6 +332,119 @@ func TestHomeScreenEmptyWithoutCatalogs(t *testing.T) {
 	node := render(t, &Service{content: &fakeQueries{}}, "home", nil)
 	if _, ok := find(node, sdui.TypeEmptyState); !ok {
 		t.Fatal("home with no catalogs must render an EmptyState")
+	}
+}
+
+func TestHomeScreenRendersContinueWatchingRail(t *testing.T) {
+	fake := &fakeQueries{
+		catalogs: []app.ModuleCatalog{
+			{ModuleID: "stremio", Catalog: v1.Catalog{ID: "top", NativeType: "series", Name: "Popular Series"}},
+		},
+		items: []v1.CatalogItem{
+			{Ref: v1.ContentRef{Provider: "stremio", NativeID: "tt1", NativeType: "series", MediaType: v1.MediaTVSeries}, Title: "A Series"},
+		},
+		previewMeta: v1.ContentMetadata{Title: "A Series", Backdrop: "http://cdn/bd.jpg"},
+		// The Work the in-progress episode belongs to, with stored art (ADR 0071).
+		node: v1.Node{
+			ID: "work-1", WorkID: "work-1", Kind: v1.NodeWork,
+			MediaType: v1.MediaTVSeries, Title: "The Series",
+			Artwork: v1.Artwork{Poster: "http://cdn/poster.jpg"},
+		},
+		inProgress: []v1.InProgressItem{{
+			Node: v1.Node{
+				ID: "ep-3", WorkID: "work-1", ItemType: v1.ItemEpisode,
+				MediaType: v1.MediaTVSeries, Title: "The Third Episode",
+			},
+			State: v1.PlaybackState{NodeID: "ep-3", PartID: "part-9", Position: 30 * time.Minute, Duration: 60 * time.Minute},
+		}},
+	}
+	node := render(t, &Service{content: fake}, "home", nil)
+
+	var sections []sdui.Node
+	findAll(node, sdui.TypeSection, &sections)
+	var rail sdui.Node
+	for _, s := range sections {
+		if prop(s, "title") == "Continue watching" {
+			rail = s
+		}
+	}
+	if rail == nil {
+		t.Fatal("home with an in-progress item has no Continue watching rail")
+	}
+
+	card, ok := find(rail, sdui.TypePosterCard)
+	if !ok {
+		t.Fatal("continue-watching rail has no card")
+	}
+	// The series poster and title come from the Work; the episode is named
+	// beneath it.
+	if got, _ := prop(card, "title").(string); got != "The Series" {
+		t.Fatalf("card title = %q, want the work title", got)
+	}
+	if got, _ := prop(card, "subtitle").(string); got != "The Third Episode" {
+		t.Fatalf("card subtitle = %q, want the episode title", got)
+	}
+	// A resume-progress fraction (30 of 60 minutes).
+	if got, _ := prop(card, "progress").(float64); got != 0.5 {
+		t.Fatalf("card progress = %v, want 0.5", prop(card, "progress"))
+	}
+	// The tap resumes rather than navigating — a node cannot open a rich detail
+	// (ADR 0071), so the card carries a play action, not a navigation.
+	if actionOf(card) == nil {
+		t.Fatal("continue-watching card has no action to resume")
+	}
+}
+
+func TestSeriesDetailMarksWatchedEpisodes(t *testing.T) {
+	fake := &fakeQueries{
+		previewInLibrary: true,
+		previewNodeID:    "series-1",
+		previewMeta: v1.ContentMetadata{
+			Title: "The Series",
+			Episodes: []v1.EpisodePreview{
+				{Season: 1, Episode: 1, Title: "Pilot"},
+				{Season: 1, Episode: 2, Title: "Second"},
+				{Season: 1, Episode: 3, Title: "Third"},
+			},
+		},
+		// The materialised tree: a season container, then episode items, each
+		// carrying its number as NaturalOrder — the bridge from the live preview's
+		// (season, episode) back to the nodes playback state is keyed under.
+		childrenByNode: map[v1.NodeID][]v1.Node{
+			"series-1": {{ID: "s1", Kind: v1.NodeContainer, ContainerType: v1.ContainerSeason, NaturalOrder: 1}},
+			"s1": {
+				{ID: "e1", Kind: v1.NodeItem, ItemType: v1.ItemEpisode, NaturalOrder: 1},
+				{ID: "e2", Kind: v1.NodeItem, ItemType: v1.ItemEpisode, NaturalOrder: 2},
+				{ID: "e3", Kind: v1.NodeItem, ItemType: v1.ItemEpisode, NaturalOrder: 3},
+			},
+		},
+		// e1 is finished (watched); e2 is started but not finished; e3 unseen.
+		playbackStates: map[v1.NodeID]v1.PlaybackState{
+			"e1": {NodeID: "e1", Finished: true},
+			"e2": {NodeID: "e2", Position: 5 * time.Minute},
+		},
+	}
+	ref := map[string]any{"provider": "stremio", "nativeId": "tt1", "nativeType": "series", "mediaType": string(v1.MediaTVSeries)}
+	node := render(t, &Service{content: fake}, "detail", map[string]any{"ref": ref})
+
+	var rows []sdui.Node
+	findAll(node, sdui.TypeEpisodeRow, &rows)
+	if len(rows) != 3 {
+		t.Fatalf("got %d episode rows, want 3", len(rows))
+	}
+	watched := map[string]bool{}
+	for _, r := range rows {
+		title, _ := prop(r, "title").(string)
+		watched[title] = prop(r, "watched") == true
+	}
+	if !watched["Pilot"] {
+		t.Error("a finished episode should be marked watched")
+	}
+	if watched["Second"] {
+		t.Error("a started-but-unfinished episode must not be marked watched")
+	}
+	if watched["Third"] {
+		t.Error("an unseen episode must not be marked watched")
 	}
 }
 

@@ -31,7 +31,12 @@ import (
 //
 // input is the SDUI runtime's action envelope in JSON (ADR 0029), so an action
 // ABI is a property of the action, not of the transport carrying it.
-func (h *Handler) dispatch(ctx context.Context, s *liveSession, action string, input []byte) (*sessionv1.ServerMessage, error) {
+// An action pushes a *sequence* of updates, not one: the two-lane transport
+// (ADR 0041) exists so the server drives the client's regions unprompted, and a
+// single action can legitimately push more than one region update — a player and
+// the "Next episode" control beside it. Most actions push nothing (a nil slice)
+// and re-render the content region instead; playPart is the one that pushes.
+func (h *Handler) dispatch(ctx context.Context, s *liveSession, action string, input []byte) ([]*sessionv1.ServerMessage, error) {
 	caller := s.caller
 	switch action {
 	case "importContent":
@@ -104,7 +109,7 @@ type playEnvelope struct {
 // The ticket is minted here, in the transport, and never leaves the server in
 // readable form — the resolved URL may carry a debrid credential, so the client
 // receives an opaque handle to the Platform's own origin instead.
-func (h *Handler) playPart(ctx context.Context, s *liveSession, input []byte) (*sessionv1.ServerMessage, error) {
+func (h *Handler) playPart(ctx context.Context, s *liveSession, input []byte) ([]*sessionv1.ServerMessage, error) {
 	caller := s.caller
 	// What this client said it can decode, declared on Attach (ADR 0047). It is
 	// read once and used twice — to rank candidates and to plan the streams —
@@ -201,7 +206,21 @@ func (h *Handler) playPart(ctx context.Context, s *liveSession, input []byte) (*
 		// the response rather than being told up front.
 		MimeType: playbackMimeType(plan),
 	})
-	return regionMsg(playerRegion, sessionv1.RegionUpdate_REPLACE, node), nil
+	msgs := []*sessionv1.ServerMessage{regionMsg(playerRegion, sessionv1.RegionUpdate_REPLACE, node)}
+
+	// What to offer after this one (ADR 0047), pushed as a second region update
+	// beside the player — the two-lane transport driving the region unprompted,
+	// not the client asking. Best-effort and after the mint, so a missing or slow
+	// lookup costs the "Next episode" control, never the play.
+	if next := h.nextEpisodeUp(ctx, caller, v1.NodeID(env.NodeID)); next != nil {
+		label := "Next episode"
+		if next.label != "" {
+			label = "Next: " + next.label
+		}
+		button := screens.NextEpisodeNode(label, next.partID, next.nodeID, next.title)
+		msgs = append(msgs, regionMsg(playerRegion, sessionv1.RegionUpdate_APPEND, button))
+	}
+	return msgs, nil
 }
 
 // mediaInfo answers what the chosen release actually is, from storage when it is

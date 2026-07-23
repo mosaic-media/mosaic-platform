@@ -87,6 +87,7 @@ func (s *Service) AddContentChild(ctx context.Context, cmd v1.AddContentChildCom
 			Status:        v1.NodeActive,
 			ExternalIDs:   cmd.ExternalIDs,
 			Attributes:    cmd.Attributes,
+			Artwork:       cmd.Artwork,
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		}

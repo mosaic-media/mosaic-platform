@@ -171,17 +171,20 @@ func (h *Handler) Invoke(ctx context.Context, req *connect.Request[sessionv1.Inv
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unknown action"))
 	}
 	s := h.mgr.session(r.GetSession())
-	outcome, err := h.dispatch(ctx, s, r.GetAction(), r.GetInput())
+	outcomes, err := h.dispatch(ctx, s, r.GetAction(), r.GetInput())
 	if err != nil {
 		s.enqueue(toastMsg(errorMessage(err), "danger"))
 		return connect.NewResponse(&sessionv1.Ack{}), nil
 	}
-	// An action that produced its own surface (a player) pushes that instead of
-	// a confirmation toast, and must not re-render the content region — the
-	// screen underneath the player has not changed and re-rendering it would
-	// tear the player down.
-	if outcome != nil {
-		s.enqueue(outcome)
+	// An action that produced its own surface pushes it — possibly a sequence
+	// (a player, and the "Next episode" control beside it) — instead of a
+	// confirmation toast, and must not re-render the content region: the screen
+	// underneath the player has not changed and re-rendering it would tear the
+	// player down.
+	if len(outcomes) > 0 {
+		for _, m := range outcomes {
+			s.enqueue(m)
+		}
 		return connect.NewResponse(&sessionv1.Ack{}), nil
 	}
 	// A silent action gets neither. Confirming something the user did not do is

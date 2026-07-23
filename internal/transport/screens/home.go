@@ -12,12 +12,16 @@ import (
 	"github.com/mosaic-media/sdui/ui"
 
 	"github.com/mosaic-media/platform/internal/platform/app"
+	"github.com/mosaic-media/platform/internal/platform/telemetry"
 	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 )
 
 const (
 	homeMaxRows     = 6
 	homeMaxRowItems = 20
+	// homeContinueItems bounds the continue-watching rail — the most recently
+	// watched, unfinished items. A rail, not an archive (ADR 0046).
+	homeContinueItems = 12
 	// homeUpNextItems bounds the "Up next" filmstrip docked on the hero floor —
 	// the items neighbouring the featured one, drawn from the same first catalog.
 	homeUpNextItems = 8
@@ -152,6 +156,15 @@ func (s *Service) homeScreen(ctx context.Context, caller v1.Caller) (sdui.Node, 
 		"px": "gutter", "pt": 8, "pb": 9,
 		"position": "relative", "z": "raised",
 	}))
+	// Continue watching leads the sheet: the most personal rail, above the
+	// browse rows below it. It is gated by having something in progress — an
+	// install with no playback consumer has nothing here and shows nothing
+	// (ADR 0036). (When the metadata addons are down the catalogs are empty and
+	// this whole screen short-circuits above; surfacing the rail there is
+	// cache-first rendering, ADR 0052, slice 4.)
+	if cw := s.continueWatchingSection(ctx, caller); cw != nil {
+		sheetEls = append(sheetEls, cw)
+	}
 	if upNext != nil {
 		sheetEls = append(sheetEls, upNext)
 	}
@@ -194,4 +207,119 @@ func (s *Service) heroFromItem(ctx context.Context, caller v1.Caller, it v1.Cata
 		ui.Backdrop(s.art(m.Backdrop)),
 		ui.When(m.Logo != "", ui.Logo(s.art(m.Logo))),
 	)
+}
+
+// continueWatchingSection renders the home's continue-watching rail from the
+// in-progress list (ADR 0046): the items a viewer has started and not finished,
+// most recently touched first. It returns nil when there is nothing in progress
+// — the rail is a capability-gated affordance (ADR 0036), and an install with no
+// playback consumer simply has no rail — and when the query fails, so a rail
+// that cannot load never takes the home screen down with it.
+func (s *Service) continueWatchingSection(ctx context.Context, caller v1.Caller) ui.El {
+	res, err := s.content.ListInProgress(ctx, v1.ListInProgressQuery{Caller: caller, Limit: homeContinueItems})
+	if err != nil {
+		// Dropped, but not silently: "nothing in progress" and "the query failed"
+		// must stay distinguishable, which is a difference only a log can carry.
+		telemetry.From(ctx).For("screens").Warn("continue-watching query failed; omitting the rail",
+			telemetry.Err(err))
+		return nil
+	}
+	if len(res.Items) == 0 {
+		return nil
+	}
+
+	// Each card needs its Work's poster and title, one indexed read apiece — a
+	// database read, not a metadata round-trip, because the art is stored
+	// (ADR 0071). Fetch them concurrently, as the hero enrichment does, so the
+	// rail costs one round-trip rather than a sum; a card whose read fails drops
+	// out rather than failing the rail.
+	cards := make([]ui.El, len(res.Items))
+	var wg sync.WaitGroup
+	for i, item := range res.Items {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cards[i] = s.continueCard(ctx, caller, item)
+		}()
+	}
+	wg.Wait()
+
+	out := make([]ui.El, 0, len(cards))
+	for _, c := range cards {
+		if c != nil {
+			out = append(out, c)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return ui.Section("Continue watching", ui.Carousel(out...))
+}
+
+// continueCard renders one continue-watching item: the work's poster with a
+// resume-progress bar, the work title (and, for a series, the episode beneath
+// it), and a tap that resumes the same release at the stored position.
+//
+// The tap invokes playPart directly rather than opening a detail: a rail item is
+// a node, and a node cannot be turned back into the provider-bearing ref a rich
+// detail needs (ADR 0071), so one-tap resume is both the better affordance and
+// the only one reachable. The card carries the Part last played and the node the
+// position is keyed to; the Platform reads the offset itself (ADR 0046), so a
+// stale offset costs the offset, never the play.
+func (s *Service) continueCard(ctx context.Context, caller v1.Caller, item v1.InProgressItem) ui.El {
+	// Without the release that produced the position there is nothing to resume;
+	// such a row should not have come back from the in-progress query, but a card
+	// that cannot act is worse than one absent.
+	if item.State.PartID == "" {
+		return nil
+	}
+	// The poster and title live on the Work, not on the episode or feature item
+	// the position is keyed to (ADR 0013 attaches Parts to items; ADR 0071 stores
+	// art on the work).
+	work, err := s.content.GetContentNode(ctx, v1.GetContentNodeQuery{Caller: caller, NodeID: item.Node.WorkID})
+	if err != nil {
+		return nil
+	}
+	title := work.Node.Title
+
+	poster := ""
+	if p := work.Node.Artwork.Poster; p != "" {
+		poster = s.art(p)
+	}
+
+	els := make([]ui.El, 0, 4)
+	if poster != "" {
+		els = append(els, ui.Poster(poster))
+	}
+	// Name the episode under the series title; a film's item has nothing to add.
+	if item.Node.ItemType == v1.ItemEpisode && item.Node.Title != "" {
+		els = append(els, ui.Subtitle(item.Node.Title))
+	}
+	if f := progressFraction(item.State); f > 0 {
+		els = append(els, ui.Progress(f))
+	}
+	els = append(els, ui.OnTap(ui.Invoke(playPartAction, map[string]any{
+		paramPartID: string(item.State.PartID),
+		paramNodeID: string(item.Node.ID),
+		"title":     title,
+		"poster":    poster,
+	})))
+	return ui.PosterCard(title, string(work.Node.MediaType), els...)
+}
+
+// progressFraction is a viewer's position as a 0..1 fraction for a resume bar,
+// 0 when the player never reported a length (the bar is then omitted rather than
+// drawn full or empty).
+func progressFraction(st v1.PlaybackState) float64 {
+	if st.Duration <= 0 {
+		return 0
+	}
+	f := st.Position.Seconds() / st.Duration.Seconds()
+	if f < 0 {
+		return 0
+	}
+	if f > 1 {
+		return 1
+	}
+	return f
 }

@@ -67,3 +67,19 @@ func PlayerNode(p PlayerParams) sdui.Node {
 	}
 	return ui.Player(p.Src, els...).Build()
 }
+
+// NextEpisodeNode is the "Next episode" control shown alongside a playing
+// episode — "what comes next" is a server decision (ADR 0047). It is a plain
+// Button node the server pushes into the player region and the host renders
+// through the component vocabulary; the client authors no chrome for it. Taking
+// it is an ordinary playPart, which the Platform resolves and starts at the
+// beginning — a next episode is a new play, not a resume.
+//
+// label names the episode, partID/nodeID/title are the play it dispatches.
+func NextEpisodeNode(label, partID, nodeID, title string) sdui.Node {
+	return ui.Button(label, "secondary", ui.OnTap(ui.Invoke(playPartAction, map[string]any{
+		paramPartID: partID,
+		paramNodeID: nodeID,
+		"title":     title,
+	}))).Build()
+}

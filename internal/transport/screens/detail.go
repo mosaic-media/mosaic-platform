@@ -183,7 +183,13 @@ func (s *Service) richDetail(ctx context.Context, caller v1.Caller, ref v1.Conte
 	}
 
 	if len(m.Episodes) > 0 {
-		body = append(body, s.episodesSection(ref, m.Episodes, params))
+		// Watched marks come from the materialised tree, which only an in-library
+		// series has; a virtual one passes no node and shows no marks.
+		var seriesNode v1.NodeID
+		if res.InLibrary {
+			seriesNode = res.NodeID
+		}
+		body = append(body, s.episodesSection(ctx, caller, ref, seriesNode, m.Episodes, params))
 	}
 
 	return ui.Screen(ui.Group(body...)).Build(), nil
@@ -257,7 +263,7 @@ func seasonEpisodeLabel(episodes []v1.EpisodePreview) string {
 // selected season's episodes as EpisodeRows carrying the synopsis and still
 // (ADR 0034). The selected season comes from the season param, defaulting to the
 // first.
-func (s *Service) episodesSection(ref v1.ContentRef, episodes []v1.EpisodePreview, params map[string]any) *ui.Element {
+func (s *Service) episodesSection(ctx context.Context, caller v1.Caller, ref v1.ContentRef, seriesNode v1.NodeID, episodes []v1.EpisodePreview, params map[string]any) *ui.Element {
 	order := make([]int, 0)
 	bySeason := make(map[int][]v1.EpisodePreview)
 	for _, e := range episodes {
@@ -294,15 +300,94 @@ func (s *Service) episodesSection(ref v1.ContentRef, episodes []v1.EpisodePrevie
 	selector := ui.Component("SeasonSelector",
 		ui.Prop("seasons", seasonEntries), ui.Prop("selected", strconv.Itoa(selected)))
 
+	// A finished mark per episode, for an in-library series (ADR 0046). Read once
+	// for the whole visible season rather than per row, and only when there is a
+	// materialised tree to read from.
+	var watched map[int]bool
+	if seriesNode != "" {
+		watched = s.watchedInSeason(ctx, caller, seriesNode, selected)
+	}
+
 	rows := make([]ui.El, 0, len(bySeason[selected]))
 	for _, e := range bySeason[selected] {
 		rows = append(rows, ui.EpisodeRow(e.Title,
 			ui.Prop("index", strconv.Itoa(e.Episode)),
 			ui.When(e.Overview != "", ui.Overview(e.Overview)),
 			ui.When(e.Thumbnail != "", ui.Prop("thumbnail", s.art(e.Thumbnail))),
+			ui.When(watched[e.Episode], ui.Prop("watched", true)),
 		))
 	}
 	return ui.Section("Episodes", selector, ui.Stack("vertical", 3, rows...))
+}
+
+// watchedInSeason returns the finished episodes of one season of an in-library
+// series, keyed by episode number, for the watched checks on its rows.
+//
+// The episode list on screen is the provider's live preview (ADR 0034), which
+// carries season and episode numbers but no node ids; playback state is keyed by
+// node (ADR 0046). This bridges the two through the materialised tree: a series'
+// children are its seasons and a season's children its episodes, each carrying
+// its number as NaturalOrder, so the tree maps (season, episode) back to the
+// node the position is stored under. It reads only the selected season — one
+// season walk and one batched state read — because that is all the rows show.
+//
+// Every failure returns no marks rather than an error: an unmarked episode row
+// is still a row, and a detail screen that cannot read progress should lose its
+// ticks, not its episodes.
+func (s *Service) watchedInSeason(ctx context.Context, caller v1.Caller, seriesNode v1.NodeID, season int) map[int]bool {
+	seasons, err := s.content.GetContentNode(ctx, v1.GetContentNodeQuery{
+		Caller: caller, NodeID: seriesNode, WithChildren: true,
+	})
+	if err != nil {
+		telemetry.From(ctx).For("screens").Warn("reading season tree for watched marks failed",
+			telemetry.Identifier("series", string(seriesNode)), telemetry.Err(err))
+		return nil
+	}
+	var seasonNode v1.NodeID
+	for _, c := range seasons.Children {
+		if c.Kind == v1.NodeContainer && int(c.NaturalOrder) == season {
+			seasonNode = c.ID
+			break
+		}
+	}
+	if seasonNode == "" {
+		return nil
+	}
+
+	eps, err := s.content.GetContentNode(ctx, v1.GetContentNodeQuery{
+		Caller: caller, NodeID: seasonNode, WithChildren: true,
+	})
+	if err != nil {
+		telemetry.From(ctx).For("screens").Warn("reading episode nodes for watched marks failed",
+			telemetry.Identifier("season", string(seasonNode)), telemetry.Err(err))
+		return nil
+	}
+	byNumber := make(map[int]v1.NodeID, len(eps.Children))
+	ids := make([]v1.NodeID, 0, len(eps.Children))
+	for _, ep := range eps.Children {
+		if ep.ItemType != v1.ItemEpisode {
+			continue
+		}
+		byNumber[int(ep.NaturalOrder)] = ep.ID
+		ids = append(ids, ep.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	states, err := s.content.ListPlaybackStates(ctx, v1.ListPlaybackStatesQuery{Caller: caller, NodeIDs: ids})
+	if err != nil {
+		telemetry.From(ctx).For("screens").Warn("reading playback states for watched marks failed",
+			telemetry.Err(err))
+		return nil
+	}
+	watched := make(map[int]bool, len(byNumber))
+	for num, id := range byNumber {
+		if st, ok := states.States[id]; ok && st.Finished {
+			watched[num] = true
+		}
+	}
+	return watched
 }
 
 // libraryDetail renders a materialised node: its header, and its direct children

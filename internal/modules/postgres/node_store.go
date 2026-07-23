@@ -29,7 +29,7 @@ func NewNodeStore(pool *pgxpool.Pool) contracts.NodeStore {
 }
 
 const nodeColumns = `id, work_id, parent_id, node_kind, media_type, container_type, item_type,
-	title, natural_order, status, external_ids, attributes, created_at, updated_at`
+	title, natural_order, status, external_ids, attributes, artwork, created_at, updated_at`
 
 func (s *nodeStore) Create(ctx context.Context, node v1.Node) (v1.Node, error) {
 	// Canonicalise on write rather than trusting callers, so the open
@@ -38,13 +38,13 @@ func (s *nodeStore) Create(ctx context.Context, node v1.Node) (v1.Node, error) {
 	node = node.Canonical()
 	_, err := s.q.Exec(ctx,
 		`INSERT INTO nodes (id, work_id, parent_id, node_kind, media_type, container_type, item_type,
-		                    title, natural_order, status, external_ids, attributes, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		                    title, natural_order, status, external_ids, attributes, artwork, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		string(node.ID), string(node.WorkID), nodeIDParam(node.ParentID),
 		string(node.Kind), string(node.MediaType),
 		nullableText(string(node.ContainerType)), nullableText(string(node.ItemType)),
 		node.Title, node.NaturalOrder, string(node.Status),
-		jsonDocument(node.ExternalIDs), jsonDocument(node.Attributes),
+		jsonDocument(node.ExternalIDs), jsonDocument(node.Attributes), artworkDocument(node.Artwork),
 		node.CreatedAt, node.UpdatedAt,
 	)
 	if err != nil {
@@ -70,13 +70,13 @@ func (s *nodeStore) Update(ctx context.Context, node v1.Node) (v1.Node, error) {
 	tag, err := s.q.Exec(ctx,
 		`UPDATE nodes SET work_id = $2, parent_id = $3, node_kind = $4, media_type = $5,
 		                  container_type = $6, item_type = $7, title = $8, natural_order = $9,
-		                  status = $10, external_ids = $11, attributes = $12, updated_at = $13
+		                  status = $10, external_ids = $11, attributes = $12, artwork = $13, updated_at = $14
 		 WHERE id = $1`,
 		string(node.ID), string(node.WorkID), nodeIDParam(node.ParentID),
 		string(node.Kind), string(node.MediaType),
 		nullableText(string(node.ContainerType)), nullableText(string(node.ItemType)),
 		node.Title, node.NaturalOrder, string(node.Status),
-		jsonDocument(node.ExternalIDs), jsonDocument(node.Attributes),
+		jsonDocument(node.ExternalIDs), jsonDocument(node.Attributes), artworkDocument(node.Artwork),
 		node.UpdatedAt,
 	)
 	if err != nil {
@@ -219,12 +219,18 @@ func scanNode(row pgx.Row) (v1.Node, error) {
 		containerType *string
 		itemType      *string
 		status        string
+		artwork       []byte
 	)
 	if err := row.Scan(
 		&id, &workID, &parentID, &kind, &mediaType, &containerType, &itemType,
 		&node.Title, &node.NaturalOrder, &status,
-		&node.ExternalIDs, &node.Attributes, &node.CreatedAt, &node.UpdatedAt,
+		&node.ExternalIDs, &node.Attributes, &artwork, &node.CreatedAt, &node.UpdatedAt,
 	); err != nil {
+		return v1.Node{}, err
+	}
+	// artwork is NOT NULL DEFAULT '{}', so this is at worst an empty object that
+	// unmarshals to the zero Artwork — never a nil to guard.
+	if err := json.Unmarshal(artwork, &node.Artwork); err != nil {
 		return v1.Node{}, err
 	}
 	node.ID = v1.NodeID(id)
@@ -285,6 +291,17 @@ func nullableText(s string) any {
 // than a missing one.
 func jsonDocument(doc []byte) []byte {
 	if len(doc) == 0 {
+		return []byte(`{}`)
+	}
+	return doc
+}
+
+// artworkDocument renders stored artwork as its jsonb column value. Artwork is a
+// struct of strings, so marshalling it never fails; an empty value becomes `{}`
+// through the omitempty tags, matching the column default.
+func artworkDocument(a v1.Artwork) []byte {
+	doc, err := json.Marshal(a)
+	if err != nil {
 		return []byte(`{}`)
 	}
 	return doc

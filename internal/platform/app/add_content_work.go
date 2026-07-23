@@ -69,6 +69,7 @@ func (s *Service) AddContentWork(ctx context.Context, cmd v1.AddContentWorkComma
 			Status:      v1.NodeActive,
 			ExternalIDs: cmd.ExternalIDs,
 			Attributes:  cmd.Attributes,
+			Artwork:     cmd.Artwork,
 			CreatedAt:   now,
 			UpdatedAt:   now,
 		}
