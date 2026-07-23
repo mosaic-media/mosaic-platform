@@ -40,11 +40,7 @@ func (s *Service) GetModuleSettings(ctx context.Context, query GetModuleSettings
 		return GetModuleSettingsResult{}, contracts.NewError(contracts.InvalidArgument, "module id is required")
 	}
 
-	callerID, err := s.authenticateCaller(ctx, query.Caller)
-	if err != nil {
-		return GetModuleSettingsResult{}, err
-	}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionModuleRead, policy.Resource{Type: "module"}, policy.PolicyContext{}); err != nil {
+	if _, err := s.enter(ctx, query.Caller, ActionModuleRead, policy.Resource{Type: "module"}); err != nil {
 		return GetModuleSettingsResult{}, err
 	}
 

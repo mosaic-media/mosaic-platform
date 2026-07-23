@@ -219,6 +219,20 @@ func (s *Service) enter(ctx context.Context, caller v1.Caller, action policy.Act
 	return authorized{userID: callerID, caller: caller}, nil
 }
 
+// enterSession is enter for the handlers that take a raw domain.SessionID
+// rather than the published v1.Caller — the users, roles, sessions and config
+// families, which predate the content surface and were never part of it.
+//
+// Two forms rather than one because the two families genuinely differ at the
+// signature: a v1.Caller is the opaque reference a module or client holds
+// (ADR 0017), a SessionID is the Platform's own identifier. Converting one to
+// the other here rather than at each call site keeps that distinction where it
+// belongs — in the type the handler accepts — instead of scattering
+// domain.SessionID(caller.Session) across twenty files.
+func (s *Service) enterSession(ctx context.Context, session domain.SessionID, action policy.Action, resource policy.Resource) (authorized, error) {
+	return s.enter(ctx, v1.Caller{Session: string(session)}, action, resource)
+}
+
 // newEvent builds an Event envelope for eventType with the
 // given payload and actor, stamping a fresh id and both occurrence and record
 // timestamps from the Service clock. In synchronous command handling

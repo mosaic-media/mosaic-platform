@@ -38,11 +38,7 @@ func (s *Service) ListModuleCatalogs(ctx context.Context, q ListModuleCatalogsQu
 	if q.Caller.Session == "" {
 		return ListModuleCatalogsResult{}, contracts.NewError(contracts.InvalidArgument, "caller is required")
 	}
-	callerID, err := s.authenticateCaller(ctx, q.Caller)
-	if err != nil {
-		return ListModuleCatalogsResult{}, err
-	}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
+	if _, err := s.enter(ctx, q.Caller, ActionContentRead, policy.Resource{Type: "content"}); err != nil {
 		return ListModuleCatalogsResult{}, err
 	}
 	if s.capabilities == nil {

@@ -59,15 +59,9 @@ func (s *Service) CreateLocalUser(ctx context.Context, cmd CreateLocalUserComman
 		return CreateLocalUserResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enterSession(ctx, cmd.CallerSessionID, ActionUserCreate, policy.Resource{Type: "user"})
 	if err != nil {
-		return CreateLocalUserResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	subject := policy.Subject{UserID: callerID}
-	if err := s.authorize(ctx, subject, ActionUserCreate, policy.Resource{Type: "user"}, policy.PolicyContext{}); err != nil {
 		return CreateLocalUserResult{}, err
 	}
 
@@ -117,7 +111,7 @@ func (s *Service) CreateLocalUser(ctx context.Context, cmd CreateLocalUserComman
 
 		// The actor is the authorized caller who created the account, not the
 		// new user.
-		event := domain.OutboxEvent{Event: s.newEvent(ctx, "user.created", []byte(created.Username), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "user.created", []byte(created.Username), string(az.userID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}

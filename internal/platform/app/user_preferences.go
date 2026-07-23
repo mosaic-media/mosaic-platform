@@ -60,20 +60,14 @@ func (s *Service) SetUserPreference(ctx context.Context, cmd SetUserPreferenceCo
 		return SetUserPreferenceResult{}, contracts.NewError(contracts.InvalidArgument, "preference value must be valid JSON")
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enter(ctx, cmd.Caller, ActionPreferenceWrite, policy.Resource{Type: "preference"})
 	if err != nil {
 		return SetUserPreferenceResult{}, err
 	}
 
-	// 3. authorize the action.
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionPreferenceWrite,
-		policy.Resource{Type: "preference"}, policy.PolicyContext{}); err != nil {
-		return SetUserPreferenceResult{}, err
-	}
-
 	pref := domain.UserPreference{
-		UserID:    callerID,
+		UserID:    az.userID,
 		Key:       cmd.Key,
 		Value:     cmd.Value,
 		UpdatedAt: s.clock.Now(),
@@ -91,7 +85,7 @@ func (s *Service) SetUserPreference(ctx context.Context, cmd SetUserPreferenceCo
 		// repository writes; a value is whatever a user chose, and an event
 		// payload is not the place to start carrying that.
 		return tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent(ctx, "preference.set", []byte(cmd.Key), string(callerID)),
+			Event: s.newEvent(ctx, "preference.set", []byte(cmd.Key), string(az.userID)),
 		})
 	})
 	if err != nil {
@@ -114,16 +108,13 @@ type GetUserPreferencesResult struct {
 
 // GetUserPreferences returns the calling user's preferences.
 func (s *Service) GetUserPreferences(ctx context.Context, q GetUserPreferencesQuery) (GetUserPreferencesResult, error) {
-	callerID, err := s.authenticateCaller(ctx, q.Caller)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enter(ctx, q.Caller, ActionPreferenceRead, policy.Resource{Type: "preference"})
 	if err != nil {
 		return GetUserPreferencesResult{}, err
 	}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionPreferenceRead,
-		policy.Resource{Type: "preference"}, policy.PolicyContext{}); err != nil {
-		return GetUserPreferencesResult{}, err
-	}
 
-	prefs, err := s.userPreferences.List(ctx, callerID)
+	prefs, err := s.userPreferences.List(ctx, az.userID)
 	if err != nil {
 		return GetUserPreferencesResult{}, err
 	}

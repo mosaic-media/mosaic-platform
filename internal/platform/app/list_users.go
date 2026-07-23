@@ -39,12 +39,8 @@ func (s *Service) ListUsers(ctx context.Context, query ListUsersQuery) (ListUser
 		return ListUsersResult{}, err
 	}
 
-	callerID, err := s.authenticate(ctx, query.CallerSessionID)
-	if err != nil {
-		return ListUsersResult{}, err
-	}
-
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionUserList, policy.Resource{Type: "user"}, policy.PolicyContext{}); err != nil {
+	if _, err := s.enterSession(ctx, query.CallerSessionID, ActionUserList,
+		policy.Resource{Type: "user"}); err != nil {
 		return ListUsersResult{}, err
 	}
 

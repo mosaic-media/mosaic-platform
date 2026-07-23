@@ -56,14 +56,9 @@ func (s *Service) ConfigureModule(ctx context.Context, cmd ConfigureModuleComman
 		return ConfigureModuleResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enter(ctx, cmd.Caller, ActionModuleConfigure, policy.Resource{Type: "module"})
 	if err != nil {
-		return ConfigureModuleResult{}, err
-	}
-
-	// 3. authorize the action.
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionModuleConfigure, policy.Resource{Type: "module"}, policy.PolicyContext{}); err != nil {
 		return ConfigureModuleResult{}, err
 	}
 
@@ -85,7 +80,7 @@ func (s *Service) ConfigureModule(ctx context.Context, cmd ConfigureModuleComman
 			return err
 		}
 		return tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent(ctx, "module.configured", []byte(cmd.ModuleID), string(callerID)),
+			Event: s.newEvent(ctx, "module.configured", []byte(cmd.ModuleID), string(az.userID)),
 		})
 	})
 	if err != nil {

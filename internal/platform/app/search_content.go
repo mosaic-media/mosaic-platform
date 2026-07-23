@@ -49,15 +49,8 @@ func (s *Service) SearchContent(ctx context.Context, query v1.SearchContentQuery
 		return v1.SearchContentResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticateCaller(ctx, query.Caller)
-	if err != nil {
-		return v1.SearchContentResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	resource := policy.Resource{Type: "content"}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, resource, policy.PolicyContext{}); err != nil {
+	// 2-3. authenticate the caller and authorize the action.
+	if _, err := s.enter(ctx, query.Caller, ActionContentRead, policy.Resource{Type: "content"}); err != nil {
 		return v1.SearchContentResult{}, err
 	}
 
@@ -89,13 +82,8 @@ func (s *Service) FindContentByExternalID(ctx context.Context, query v1.FindCont
 		return v1.FindContentByExternalIDResult{}, contracts.NewError(contracts.InvalidArgument, "external id value is required")
 	}
 
-	callerID, err := s.authenticateCaller(ctx, query.Caller)
-	if err != nil {
-		return v1.FindContentByExternalIDResult{}, err
-	}
-
-	resource := policy.Resource{Type: "content"}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, resource, policy.PolicyContext{}); err != nil {
+	// 2-3. authenticate the caller and authorize the action.
+	if _, err := s.enter(ctx, query.Caller, ActionContentRead, policy.Resource{Type: "content"}); err != nil {
 		return v1.FindContentByExternalIDResult{}, err
 	}
 

@@ -34,15 +34,9 @@ func (s *Service) GetContentNode(ctx context.Context, query v1.GetContentNodeQue
 		return v1.GetContentNodeResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticateCaller(ctx, query.Caller)
-	if err != nil {
-		return v1.GetContentNodeResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	resource := policy.Resource{Type: "content", ID: string(query.NodeID)}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, resource, policy.PolicyContext{}); err != nil {
+	// 2-3. authenticate the caller and authorize the action.
+	if _, err := s.enter(ctx, query.Caller, ActionContentRead,
+		policy.Resource{Type: "content", ID: string(query.NodeID)}); err != nil {
 		return v1.GetContentNodeResult{}, err
 	}
 

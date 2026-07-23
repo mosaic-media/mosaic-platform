@@ -44,13 +44,8 @@ func (s *Service) GetRolesForUser(ctx context.Context, query GetRolesForUserQuer
 		return GetRolesForUserResult{}, err
 	}
 
-	callerID, err := s.authenticate(ctx, query.CallerSessionID)
-	if err != nil {
-		return GetRolesForUserResult{}, err
-	}
-
-	resource := policy.Resource{Type: "user", ID: string(query.TargetUserID)}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionPermissionRead, resource, policy.PolicyContext{}); err != nil {
+	if _, err := s.enterSession(ctx, query.CallerSessionID, ActionPermissionRead,
+		policy.Resource{Type: "user", ID: string(query.TargetUserID)}); err != nil {
 		return GetRolesForUserResult{}, err
 	}
 

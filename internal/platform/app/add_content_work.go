@@ -44,14 +44,9 @@ func (s *Service) AddContentWork(ctx context.Context, cmd v1.AddContentWorkComma
 		return v1.AddContentWorkResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enter(ctx, cmd.Caller, ActionContentCreate, policy.Resource{Type: "content"})
 	if err != nil {
-		return v1.AddContentWorkResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentCreate, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
 		return v1.AddContentWorkResult{}, err
 	}
 
@@ -84,7 +79,7 @@ func (s *Service) AddContentWork(ctx context.Context, cmd v1.AddContentWorkComma
 			return err
 		}
 		if err := tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent(ctx, "content.work.created", []byte(string(created.ID)), string(callerID)),
+			Event: s.newEvent(ctx, "content.work.created", []byte(string(created.ID)), string(az.userID)),
 		}); err != nil {
 			return err
 		}

@@ -49,14 +49,9 @@ func (s *Service) RelateContent(ctx context.Context, cmd v1.RelateContentCommand
 		return v1.RelateContentResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enter(ctx, cmd.Caller, ActionContentRelate, policy.Resource{Type: "content"})
 	if err != nil {
-		return v1.RelateContentResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRelate, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
 		return v1.RelateContentResult{}, err
 	}
 
@@ -90,7 +85,7 @@ func (s *Service) RelateContent(ctx context.Context, cmd v1.RelateContentCommand
 			return err
 		}
 		if err := tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent(ctx, "content.relation.created", []byte(string(created.ID)), string(callerID)),
+			Event: s.newEvent(ctx, "content.relation.created", []byte(string(created.ID)), string(az.userID)),
 		}); err != nil {
 			return err
 		}

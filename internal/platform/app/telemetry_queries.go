@@ -130,12 +130,8 @@ func (s *Service) authorizeTelemetryRead(ctx context.Context, caller v1.Caller) 
 		// exercise diagnostics. Unavailable rather than a nil dereference.
 		return contracts.NewError(contracts.Unavailable, "telemetry queries are not configured")
 	}
-	callerID, err := s.authenticateCaller(ctx, caller)
-	if err != nil {
-		return err
-	}
-	return s.authorize(ctx, policy.Subject{UserID: callerID}, ActionTelemetryRead,
-		policy.Resource{Type: "telemetry"}, policy.PolicyContext{})
+	_, err := s.enter(ctx, caller, ActionTelemetryRead, policy.Resource{Type: "telemetry"})
+	return err
 }
 
 // CallerHolds reports whether a user holds an action, for deciding what to

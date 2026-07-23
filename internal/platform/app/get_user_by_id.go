@@ -45,15 +45,9 @@ func (s *Service) GetUserByID(ctx context.Context, query GetUserByIDQuery) (GetU
 		return GetUserByIDResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, query.CallerSessionID)
-	if err != nil {
-		return GetUserByIDResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	resource := policy.Resource{Type: "user", ID: string(query.UserID)}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionUserRead, resource, policy.PolicyContext{}); err != nil {
+	// 2-3. authenticate the caller and authorize the action.
+	if _, err := s.enterSession(ctx, query.CallerSessionID, ActionUserRead,
+		policy.Resource{Type: "user", ID: string(query.UserID)}); err != nil {
 		return GetUserByIDResult{}, err
 	}
 

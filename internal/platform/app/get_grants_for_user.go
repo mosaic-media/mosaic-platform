@@ -40,13 +40,8 @@ func (s *Service) GetGrantsForUser(ctx context.Context, query GetGrantsForUserQu
 		return GetGrantsForUserResult{}, err
 	}
 
-	callerID, err := s.authenticate(ctx, query.CallerSessionID)
-	if err != nil {
-		return GetGrantsForUserResult{}, err
-	}
-
-	resource := policy.Resource{Type: "user", ID: string(query.TargetUserID)}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionPermissionRead, resource, policy.PolicyContext{}); err != nil {
+	if _, err := s.enterSession(ctx, query.CallerSessionID, ActionPermissionRead,
+		policy.Resource{Type: "user", ID: string(query.TargetUserID)}); err != nil {
 		return GetGrantsForUserResult{}, err
 	}
 

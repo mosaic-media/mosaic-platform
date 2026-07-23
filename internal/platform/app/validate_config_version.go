@@ -48,15 +48,10 @@ func (s *Service) ValidateConfigVersion(ctx context.Context, cmd ValidateConfigV
 		return ValidateConfigVersionResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enterSession(ctx, cmd.CallerSessionID, ActionConfigValidate,
+		policy.Resource{Type: "config", ID: string(cmd.ConfigVersionID)})
 	if err != nil {
-		return ValidateConfigVersionResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	resource := policy.Resource{Type: "config", ID: string(cmd.ConfigVersionID)}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionConfigValidate, resource, policy.PolicyContext{}); err != nil {
 		return ValidateConfigVersionResult{}, err
 	}
 
@@ -75,7 +70,7 @@ func (s *Service) ValidateConfigVersion(ctx context.Context, cmd ValidateConfigV
 		if version.Status == domain.ConfigRejected {
 			eventType = "config.rejected"
 		}
-		event := domain.OutboxEvent{Event: s.newEvent(ctx, eventType, []byte(string(version.ID)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, eventType, []byte(string(version.ID)), string(az.userID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}

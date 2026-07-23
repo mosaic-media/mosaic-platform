@@ -93,11 +93,7 @@ func (s *Service) ResolvePlayback(ctx context.Context, q ResolvePlaybackQuery) (
 		return ResolvePlaybackResult{}, contracts.NewError(contracts.InvalidArgument, "part id is required")
 	}
 
-	callerID, err := s.authenticateCaller(ctx, q.Caller)
-	if err != nil {
-		return ResolvePlaybackResult{}, err
-	}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
+	if _, err := s.enter(ctx, q.Caller, ActionContentRead, policy.Resource{Type: "content"}); err != nil {
 		return ResolvePlaybackResult{}, err
 	}
 

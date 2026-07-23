@@ -49,14 +49,10 @@ func (s *Service) GrantRole(ctx context.Context, cmd GrantRoleCommand) (GrantRol
 		return GrantRoleResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enterSession(ctx, cmd.CallerSessionID, ActionRoleGrant,
+		policy.Resource{Type: "role", ID: string(cmd.RoleID)})
 	if err != nil {
-		return GrantRoleResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionRoleGrant, policy.Resource{Type: "role", ID: string(cmd.RoleID)}, policy.PolicyContext{}); err != nil {
 		return GrantRoleResult{}, err
 	}
 
@@ -71,7 +67,7 @@ func (s *Service) GrantRole(ctx context.Context, cmd GrantRoleCommand) (GrantRol
 			return err
 		}
 		return tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent(ctx, "role.granted", []byte(string(cmd.UserID)), string(callerID)),
+			Event: s.newEvent(ctx, "role.granted", []byte(string(cmd.UserID)), string(az.userID)),
 		})
 	})
 	if err != nil {

@@ -46,14 +46,10 @@ func (s *Service) CreateRole(ctx context.Context, cmd CreateRoleCommand) (Create
 		return CreateRoleResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enterSession(ctx, cmd.CallerSessionID, ActionRoleCreate,
+		policy.Resource{Type: "role"})
 	if err != nil {
-		return CreateRoleResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionRoleCreate, policy.Resource{Type: "role"}, policy.PolicyContext{}); err != nil {
 		return CreateRoleResult{}, err
 	}
 
@@ -73,7 +69,7 @@ func (s *Service) CreateRole(ctx context.Context, cmd CreateRoleCommand) (Create
 			return err
 		}
 		if err := tx.Outbox().Append(ctx, domain.OutboxEvent{
-			Event: s.newEvent(ctx, "role.created", []byte(string(created.ID)), string(callerID)),
+			Event: s.newEvent(ctx, "role.created", []byte(string(created.ID)), string(az.userID)),
 		}); err != nil {
 			return err
 		}

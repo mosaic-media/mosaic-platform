@@ -56,15 +56,10 @@ func (s *Service) ActivateConfigVersion(ctx context.Context, cmd ActivateConfigV
 		return ActivateConfigVersionResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enterSession(ctx, cmd.CallerSessionID, ActionConfigActivate,
+		policy.Resource{Type: "config", ID: string(cmd.ConfigVersionID)})
 	if err != nil {
-		return ActivateConfigVersionResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	resource := policy.Resource{Type: "config", ID: string(cmd.ConfigVersionID)}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionConfigActivate, resource, policy.PolicyContext{}); err != nil {
 		return ActivateConfigVersionResult{}, err
 	}
 
@@ -84,7 +79,7 @@ func (s *Service) ActivateConfigVersion(ctx context.Context, cmd ActivateConfigV
 		if outcome.Activated {
 			eventType = "config.activated"
 		}
-		event := domain.OutboxEvent{Event: s.newEvent(ctx, eventType, []byte(string(outcome.Version.ID)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, eventType, []byte(string(outcome.Version.ID)), string(az.userID))}
 		return tx.Outbox().Append(ctx, event)
 	})
 	if err != nil {

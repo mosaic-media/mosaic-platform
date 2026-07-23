@@ -41,11 +41,7 @@ func (s *Service) ListNodeParts(ctx context.Context, q ListNodePartsQuery) (List
 		return ListNodePartsResult{}, contracts.NewError(contracts.InvalidArgument, "node id is required")
 	}
 
-	callerID, err := s.authenticateCaller(ctx, q.Caller)
-	if err != nil {
-		return ListNodePartsResult{}, err
-	}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
+	if _, err := s.enter(ctx, q.Caller, ActionContentRead, policy.Resource{Type: "content"}); err != nil {
 		return ListNodePartsResult{}, err
 	}
 	if s.parts == nil {

@@ -42,12 +42,8 @@ func (s *Service) GetActiveConfigVersion(ctx context.Context, query GetActiveCon
 		return GetActiveConfigVersionResult{}, err
 	}
 
-	callerID, err := s.authenticate(ctx, query.CallerSessionID)
-	if err != nil {
-		return GetActiveConfigVersionResult{}, err
-	}
-
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionConfigRead, policy.Resource{Type: "config"}, policy.PolicyContext{}); err != nil {
+	if _, err := s.enterSession(ctx, query.CallerSessionID, ActionConfigRead,
+		policy.Resource{Type: "config"}); err != nil {
 		return GetActiveConfigVersionResult{}, err
 	}
 

@@ -52,15 +52,10 @@ func (s *Service) SetUserStatus(ctx context.Context, cmd SetUserStatusCommand) (
 		return SetUserStatusResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enterSession(ctx, cmd.CallerSessionID, ActionUserStatusUpdate,
+		policy.Resource{Type: "user", ID: string(cmd.TargetUserID)})
 	if err != nil {
-		return SetUserStatusResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	resource := policy.Resource{Type: "user", ID: string(cmd.TargetUserID)}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionUserStatusUpdate, resource, policy.PolicyContext{}); err != nil {
 		return SetUserStatusResult{}, err
 	}
 
@@ -83,7 +78,7 @@ func (s *Service) SetUserStatus(ctx context.Context, cmd SetUserStatusCommand) (
 		if err != nil {
 			return err
 		}
-		event := domain.OutboxEvent{Event: s.newEvent(ctx, "user.status_changed", []byte(string(cmd.Status)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "user.status_changed", []byte(string(cmd.Status)), string(az.userID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}

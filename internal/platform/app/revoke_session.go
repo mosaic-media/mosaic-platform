@@ -45,15 +45,10 @@ func (s *Service) RevokeSession(ctx context.Context, cmd RevokeSessionCommand) (
 		return RevokeSessionResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enterSession(ctx, cmd.CallerSessionID, ActionSessionRevoke,
+		policy.Resource{Type: "session", ID: string(cmd.TargetSessionID)})
 	if err != nil {
-		return RevokeSessionResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	resource := policy.Resource{Type: "session", ID: string(cmd.TargetSessionID)}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionSessionRevoke, resource, policy.PolicyContext{}); err != nil {
 		return RevokeSessionResult{}, err
 	}
 
@@ -70,7 +65,7 @@ func (s *Service) RevokeSession(ctx context.Context, cmd RevokeSessionCommand) (
 		}
 
 		// 7. persist state and outbox events in the same transaction.
-		event := domain.OutboxEvent{Event: s.newEvent(ctx, "session.revoked", []byte(string(cmd.TargetSessionID)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "session.revoked", []byte(string(cmd.TargetSessionID)), string(az.userID))}
 		return tx.Outbox().Append(ctx, event)
 	})
 	if err != nil {

@@ -48,14 +48,10 @@ func (s *Service) DraftConfigVersion(ctx context.Context, cmd DraftConfigVersion
 		return DraftConfigVersionResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticate(ctx, cmd.CallerSessionID)
+	// 2-3. authenticate the caller and authorize the action.
+	az, err := s.enterSession(ctx, cmd.CallerSessionID, ActionConfigDraft,
+		policy.Resource{Type: "config"})
 	if err != nil {
-		return DraftConfigVersionResult{}, err
-	}
-
-	// 3. authorize action through policy.
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionConfigDraft, policy.Resource{Type: "config"}, policy.PolicyContext{}); err != nil {
 		return DraftConfigVersionResult{}, err
 	}
 
@@ -71,7 +67,7 @@ func (s *Service) DraftConfigVersion(ctx context.Context, cmd DraftConfigVersion
 		}
 
 		// 7. persist state and outbox events in the same transaction.
-		event := domain.OutboxEvent{Event: s.newEvent(ctx, "config.drafted", []byte(string(version.ID)), string(callerID))}
+		event := domain.OutboxEvent{Event: s.newEvent(ctx, "config.drafted", []byte(string(version.ID)), string(az.userID))}
 		if err := tx.Outbox().Append(ctx, event); err != nil {
 			return err
 		}
