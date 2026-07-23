@@ -28,7 +28,7 @@ require (
 	github.com/mosaic-media/module-cinemeta v0.1.0
 	github.com/mosaic-media/module-remote-playback v0.2.0
 	github.com/mosaic-media/module-stremio-addons v0.20.0
-	github.com/mosaic-media/module-tmdb v0.4.0
+	github.com/mosaic-media/module-tmdb v0.5.0
 	github.com/mosaic-media/sdk v0.19.0
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	golang.org/x/sync v0.22.0
