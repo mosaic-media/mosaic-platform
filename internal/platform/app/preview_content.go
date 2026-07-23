@@ -48,18 +48,15 @@ func (s *Service) PreviewContent(ctx context.Context, q PreviewContentQuery) (Pr
 		return PreviewContentResult{}, contracts.NewError(contracts.InvalidArgument, "ref needs a provider, native id and type")
 	}
 
-	callerID, err := s.authenticateCaller(ctx, q.Caller)
+	az, err := s.enter(ctx, q.Caller, ActionContentRead, policy.Resource{Type: "content"})
 	if err != nil {
-		return PreviewContentResult{}, err
-	}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
 		return PreviewContentResult{}, err
 	}
 
 	// Resolve the library plane, but do not short-circuit: an in-library ref
 	// still gets its metadata below, so its detail is as rich as a virtual one
 	// (ADR 0034). InLibrary only changes the primary action the caller renders.
-	inLib, nodeID := s.resolveInLibrary(ctx, q.Caller, q.Ref)
+	inLib, nodeID := s.resolveInLibrary(ctx, az, q.Ref)
 
 	provider, ok := s.capabilityMetadataProvider(q.Ref.Provider)
 	if !ok {

@@ -58,14 +58,10 @@ func (s *Service) ImportContent(ctx context.Context, cmd ImportContentCommand) (
 		return v1.ImportResult{}, err
 	}
 
-	// 2. authenticate caller.
-	callerID, err := s.authenticateCaller(ctx, cmd.Caller)
+	// 2-3. authenticate the caller and authorize the invocation itself. Both
+	// gates, in that order, are what enter is.
+	az, err := s.enter(ctx, cmd.Caller, ActionContentImport, policy.Resource{Type: "content"})
 	if err != nil {
-		return v1.ImportResult{}, err
-	}
-
-	// 3. authorize the invocation itself.
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentImport, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
 		return v1.ImportResult{}, err
 	}
 
@@ -85,8 +81,12 @@ func (s *Service) ImportContent(ctx context.Context, cmd ImportContentCommand) (
 
 	// 6. invoke it, forwarding the caller so it acts as the invoking user and
 	// passing the Service as the ContentService it drives.
-	ctx, span := moduleSpan(ctx, cmd.Ref.Provider, "import")
-	result, err := capability.Import(ctx, s, v1.ImportRequest{
+	//
+	// The module's context is a separate variable, not a shadow of ctx: it
+	// carries the module's logger and telemetry surface (ADR 0059) and dies
+	// with the span below, so Platform work after the call must not inherit it.
+	mctx, span := moduleSpan(ctx, cmd.Ref.Provider, "import")
+	result, err := capability.Import(mctx, s, v1.ImportRequest{
 		Caller: cmd.Caller, Ref: cmd.Ref, Settings: settings,
 	})
 	failSpan(span, err)
@@ -96,8 +96,9 @@ func (s *Service) ImportContent(ctx context.Context, cmd ImportContentCommand) (
 	}
 
 	// 7. record that an import ran, for audit. The capability's own writes each
-	// emit their content events; this marks the invocation itself.
-	s.publishAuditEvent(ctx, "content.import.invoked", []byte(cmd.Ref.Provider), string(callerID))
+	// emit their content events; this marks the invocation itself — so it is
+	// caused by the handler's span, not by the module span that has just ended.
+	s.publishAuditEvent(ctx, "content.import.invoked", []byte(cmd.Ref.Provider), string(az.userID))
 
 	return result, nil
 }

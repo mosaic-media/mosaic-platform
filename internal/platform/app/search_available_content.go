@@ -44,11 +44,8 @@ func (s *Service) SearchAvailableContent(ctx context.Context, q SearchAvailableC
 		return SearchAvailableContentResult{}, contracts.NewError(contracts.InvalidArgument, "search text is required")
 	}
 
-	callerID, err := s.authenticateCaller(ctx, q.Caller)
+	az, err := s.enter(ctx, q.Caller, ActionContentRead, policy.Resource{Type: "content"})
 	if err != nil {
-		return SearchAvailableContentResult{}, err
-	}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
 		return SearchAvailableContentResult{}, err
 	}
 
@@ -75,8 +72,17 @@ func (s *Service) SearchAvailableContent(ctx context.Context, q SearchAvailableC
 			// whole search — so until now a provider that failed every time
 			// looked exactly like one that returned nothing. The span is the
 			// only place that difference is recorded.
-			ctx, span := moduleSpan(ctx, e.ModuleID, "search")
-			resp, err := e.Provider.Search(ctx, v1.SearchRequest{
+			//
+			// The module's context is bound to a separate variable rather than
+			// shadowing ctx. moduleSpan rebinds the logger and installs the
+			// module's telemetry surface (ADR 0059), so anything the Platform
+			// does afterwards under that context is recorded as the module's
+			// work — and, once the span has ended, recorded beneath a parent
+			// that has already closed. The dedup below is Platform work, and
+			// "was it us or the addon?" is exactly the question these spans
+			// exist to answer.
+			mctx, span := moduleSpan(ctx, e.ModuleID, "search")
+			resp, err := e.Provider.Search(mctx, v1.SearchRequest{
 				Caller: q.Caller, Settings: settings, Text: q.Text, MediaType: q.MediaType, Limit: q.Limit,
 			})
 			failSpan(span, err)
@@ -88,7 +94,7 @@ func (s *Service) SearchAvailableContent(ctx context.Context, q SearchAvailableC
 			span.End()
 			out := resp.Results
 			for i := range out {
-				out[i].InLibrary, out[i].NodeID = s.resolveInLibrary(ctx, q.Caller, out[i].Ref)
+				out[i].InLibrary, out[i].NodeID = s.resolveInLibrary(ctx, az, out[i].Ref)
 			}
 			return out, nil
 		})
@@ -103,17 +109,24 @@ func (s *Service) SearchAvailableContent(ctx context.Context, q SearchAvailableC
 // already owned (ADR 0028). It matches on the provider identity the ref carries;
 // a ref without one is never in the library. A lookup error is treated as "not
 // found" so a transient read does not falsely hide an item from search.
-func (s *Service) resolveInLibrary(ctx context.Context, caller v1.Caller, ref v1.ContentRef) (bool, v1.NodeID) {
+//
+// az is not read here, and that is the point: it is a proof obligation rather
+// than data. Requiring it is what makes this an inside-the-boundary read that
+// can go straight to the store, instead of the entry point it used to call.
+// It ran once per search result, and FindContentByExternalID is a public
+// entry point, so a ten-result search re-authenticated and re-authorised ten
+// times over — for the same caller, the same action and the same resource the
+// handler above had already cleared. Roughly thirty of the search's thirty-nine
+// queries were that, and none of them could have reached a different verdict.
+func (s *Service) resolveInLibrary(ctx context.Context, az authorized, ref v1.ContentRef) (bool, v1.NodeID) {
 	if ref.ExternalScheme == "" || ref.ExternalID == "" {
 		return false, ""
 	}
-	found, err := s.FindContentByExternalID(ctx, v1.FindContentByExternalIDQuery{
-		Caller: caller, Scheme: ref.ExternalScheme, Value: ref.ExternalID,
-	})
+	nodes, err := s.nodes.FindByExternalID(ctx, ref.ExternalScheme, ref.ExternalID)
 	if err != nil {
 		return false, ""
 	}
-	for _, n := range found.Nodes {
+	for _, n := range nodes {
 		if n.IsRoot() {
 			return true, n.ID
 		}

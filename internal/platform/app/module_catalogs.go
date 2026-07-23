@@ -99,11 +99,8 @@ func (s *Service) ListCatalogItems(ctx context.Context, q ListCatalogItemsQuery)
 	if q.ModuleID == "" || q.CatalogID == "" {
 		return ListCatalogItemsResult{}, contracts.NewError(contracts.InvalidArgument, "module id and catalog id are required")
 	}
-	callerID, err := s.authenticateCaller(ctx, q.Caller)
+	az, err := s.enter(ctx, q.Caller, ActionContentRead, policy.Resource{Type: "content"})
 	if err != nil {
-		return ListCatalogItemsResult{}, err
-	}
-	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, ActionContentRead, policy.Resource{Type: "content"}, policy.PolicyContext{}); err != nil {
 		return ListCatalogItemsResult{}, err
 	}
 
@@ -121,9 +118,12 @@ func (s *Service) ListCatalogItems(ctx context.Context, q ListCatalogItemsQuery)
 	if err != nil {
 		return ListCatalogItemsResult{}, contracts.WrapError(contracts.Unavailable, "list catalog items", err)
 	}
+	// The same per-item dedup as search, and it had the same defect: a catalog
+	// page is the home screen, so this loop is the first thing a signed-in user
+	// pays for. It is not in the reported issue — the type change found it.
 	items := resp.Items
 	for i := range items {
-		items[i].InLibrary, items[i].NodeID = s.resolveInLibrary(ctx, q.Caller, items[i].Ref)
+		items[i].InLibrary, items[i].NodeID = s.resolveInLibrary(ctx, az, items[i].Ref)
 	}
 	return ListCatalogItemsResult{Items: items}, nil
 }

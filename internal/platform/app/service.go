@@ -174,6 +174,51 @@ func (s *Service) authorize(ctx context.Context, subject policy.Subject, action 
 	return nil
 }
 
+// authorized is proof that a caller cleared both boundary gates —
+// authenticate (step 2) and authorize (step 3) — for one action. It is the
+// Platform's inside voice: a function taking an authorized is being called
+// from within a handler that has already passed the boundary; a function
+// taking a v1.Caller is an entry point that has not.
+//
+// Go has no annotations and no runtime proxies, so this guarantee cannot be
+// woven in around a method the way a Java container weaves @PreAuthorize. It
+// is carried in the type instead. The struct is unexported and enter is its
+// only constructor, so a helper that requires one cannot be reached without
+// the gates having run — and, the half that matters more here, cannot
+// *repeat* them, because being inside is now something the signature can say.
+//
+// That is the defect this exists to close. Before it, an internal helper had
+// no way to express "already inside", so it reached for the only shape
+// available — a public Service method — and paid a full authenticate plus
+// authorize per call. Ten search results meant ten session reads, ten policy
+// evaluations and ten role reads for one user action, none of which could
+// decide anything the one at the top of the handler had not already decided.
+//
+// The caller is retained rather than discarded because forwarding it into a
+// module is legitimate and must stay possible: a module's own writes
+// re-authorise as the invoking user (ADR 0017), which is the whole reason it
+// is handed a Caller and not a Service with the boundary pre-cleared. That is
+// a deliberate act at a module seam, not something a helper does by accident.
+type authorized struct {
+	userID domain.UserID
+	caller v1.Caller
+}
+
+// enter runs the two boundary gates once and returns the proof. It is the
+// entry-point preamble every handler shares, in one place, so the sequence
+// authenticate-then-authorize is a property of this function rather than of
+// each handler remembering it in the right order.
+func (s *Service) enter(ctx context.Context, caller v1.Caller, action policy.Action, resource policy.Resource) (authorized, error) {
+	callerID, err := s.authenticateCaller(ctx, caller)
+	if err != nil {
+		return authorized{}, err
+	}
+	if err := s.authorize(ctx, policy.Subject{UserID: callerID}, action, resource, policy.PolicyContext{}); err != nil {
+		return authorized{}, err
+	}
+	return authorized{userID: callerID, caller: caller}, nil
+}
+
 // newEvent builds an Event envelope for eventType with the
 // given payload and actor, stamping a fresh id and both occurrence and record
 // timestamps from the Service clock. In synchronous command handling
