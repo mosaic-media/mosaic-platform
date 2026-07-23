@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/mosaic-media/platform/internal/platform/contracts"
 	"github.com/mosaic-media/platform/internal/platform/domain"
@@ -102,6 +103,13 @@ type ResolvePlaybackResult struct {
 	// slow one after the fact, and without it a cache that has silently stopped
 	// hitting looks exactly like a cache that was never warm.
 	Cached bool
+
+	// Probe is the stored probe document for the chosen release (ADR 0050),
+	// empty when it has never been probed. It rides the result rather than being
+	// re-read because the transport must not touch a store, and re-reading the
+	// Part to fetch one attribute would be a second query for something this
+	// call already had in hand.
+	Probe []byte
 }
 
 // ResolvePlayback turns a Part into a playable upstream location by asking the
@@ -158,7 +166,7 @@ func (s *Service) ResolvePlayback(ctx context.Context, q ResolvePlaybackQuery) (
 			URL: cached.URL, Headers: cached.Headers,
 			PartID: part.ID, Release: part.EditionLabel,
 			VideoCodec: part.VideoCodec, AudioCodec: part.AudioCodec, Height: part.Height,
-			Candidates: candidates, Cached: true,
+			Candidates: candidates, Cached: true, Probe: probeAttribute(part),
 		}, nil
 	}
 
@@ -202,8 +210,29 @@ func (s *Service) ResolvePlayback(ctx context.Context, q ResolvePlaybackQuery) (
 		ModuleID: entry.ModuleID, URL: res.URL, Headers: res.Headers,
 		PartID: part.ID, Release: part.EditionLabel,
 		VideoCodec: part.VideoCodec, AudioCodec: part.AudioCodec, Height: part.Height,
-		Candidates: candidates,
+		Candidates: candidates, Probe: probeAttribute(part),
 	}, nil
+}
+
+// probeAttribute lifts the stored probe document out of a Part's attributes.
+//
+// A Part with no probe, or with attributes that will not decode, yields nothing
+// and the caller probes afresh. Nothing here is worth failing a play over: the
+// worst case is one ffprobe run, which is what happened on every play before
+// this was stored at all.
+func probeAttribute(part v1.Part) []byte {
+	if len(part.Attributes) == 0 {
+		return nil
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(part.Attributes, &doc); err != nil {
+		return nil
+	}
+	raw, ok := doc[ProbeAttribute]
+	if !ok || len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	return raw
 }
 
 // cachedResolution reads a previously resolved location for this part and class

@@ -6,6 +6,8 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -317,5 +319,149 @@ func TestPlaybackResolutionCacheAgainstPostgres(t *testing.T) {
 		Caller: caller, PartID: attached.Part.ID,
 	}); err == nil {
 		t.Fatal("an unclassed client read a cache entry")
+	}
+}
+
+// TestPartProbeIsDurableAgainstPostgres proves the second play of a release does
+// not re-derive what the first one learned (ADR 0050).
+//
+// The probe is what remained expensive once ADR 0049's cache removed the
+// aggregator call, and it is pure waste: a probe describes bytes, and the bytes
+// do not change. This walks the storage path without ffmpeg — recording a probe
+// as the transport would, then reading it back through ResolvePlayback exactly
+// as the play path does.
+func TestPartProbeIsDurableAgainstPostgres(t *testing.T) {
+	requirePostgres(t)
+
+	pool := freshDatabase(t)
+	c := context.Background()
+	if err := postgres.Migrate(c, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var mod postgres.Module
+	cs := mod.Bind(pool)
+
+	registry := app.NewCapabilityRegistry()
+	registry.Register(remoteplayback.New())
+
+	svc := app.NewService(app.Deps{
+		UnitOfWork: cs.UnitOfWork, Sessions: cs.Sessions, Users: cs.Users, Credentials: cs.Credentials,
+		Config: cs.Config, Permissions: cs.Permissions, Nodes: cs.Nodes, Parts: cs.Parts, Clock: cs.Clock,
+		IDs: cs.IDs, ContentIDs: cs.ContentIDs,
+		Policy: policy.NewEngine(cs.Permissions), Events: noopPublisher{}, PasswordVerifier: reversibleVerifier{},
+		Capabilities: registry, ModuleSettings: cs.ModuleSettings,
+		PlaybackResolutions: cs.PlaybackResolutions,
+	})
+	caller := seedPlaybackUser(t, c, cs, pool)
+
+	work, err := svc.AddContentWork(c, v1.AddContentWorkCommand{
+		Caller: caller, Title: "Probed", MediaType: v1.MediaMovie,
+	})
+	if err != nil {
+		t.Fatalf("AddContentWork: %v", err)
+	}
+	item, err := svc.AddContentChild(c, v1.AddContentChildCommand{
+		Caller: caller, ParentID: work.Work.ID, Kind: v1.NodeItem, Title: "Probed", ItemType: v1.ItemFeature,
+	})
+	if err != nil {
+		t.Fatalf("AddContentChild: %v", err)
+	}
+	// Attached with what a release *name* suggested, which is what the module's
+	// dialect table produces and what ADR 0050 demoted to a ranking hint. Both
+	// of these are about to be contradicted by the bytes.
+	attached, err := svc.AttachContentPart(c, v1.AttachContentPartCommand{
+		Caller: caller, NodeID: item.Node.ID, Role: v1.PartEdition,
+		Location:   v1.MediaLocation{Scheme: v1.RemoteLocation, Provider: "stremio", Ref: "https://cdn.example/probed.mkv"},
+		Container:  "mp4",
+		VideoCodec: "h264",
+		HDRFormat:  "hdr10",
+		Attributes: []byte(`{"source":{"addon":"aio"}}`),
+	})
+	if err != nil {
+		t.Fatalf("AttachContentPart: %v", err)
+	}
+
+	// Nothing stored yet: the play path must find no probe and fall through to
+	// running one.
+	cold, err := svc.ResolvePlayback(c, app.ResolvePlaybackQuery{
+		Caller: caller, PartID: attached.Part.ID, CapabilityClass: "class-browser",
+	})
+	if err != nil {
+		t.Fatalf("cold ResolvePlayback: %v", err)
+	}
+	if len(cold.Probe) != 0 {
+		t.Errorf("an unprobed part reported a probe: %s", cold.Probe)
+	}
+
+	info := playback.MediaInfo{
+		Container: "matroska",
+		SizeBytes: 34_336_638_566,
+		Video: playback.VideoTrack{
+			Index: 0, Codec: "hevc", Width: 3840, Height: 2160, Profile: "Main 10",
+		},
+		Audio: []playback.AudioTrack{
+			{Index: 1, Codec: "eac3", Channels: 6, Language: "hin", Default: true},
+			{Index: 2, Codec: "aac", Channels: 2, Language: "eng"},
+		},
+	}
+	doc, err := playback.Encode(info)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	recorded, err := svc.RecordPartProbe(c, app.RecordPartProbeCommand{
+		Caller: caller, PartID: attached.Part.ID,
+		Container: info.Container, VideoCodec: info.Video.Codec,
+		AudioCodec: playback.SummaryAudioCodec(info),
+		Width:      info.Video.Width, Height: info.Video.Height,
+		HDRFormat: info.Video.HDRFormat, SizeBytes: info.SizeBytes,
+		Probe: doc,
+	})
+	if err != nil {
+		t.Fatalf("RecordPartProbe: %v", err)
+	}
+
+	// The bytes overrule the name. Both of these were wrong on the way in.
+	if recorded.Part.Container != "matroska" {
+		t.Errorf("container = %q, want matroska: the probe did not overrule the parsed name", recorded.Part.Container)
+	}
+	if recorded.Part.VideoCodec != "hevc" {
+		t.Errorf("video codec = %q, want hevc", recorded.Part.VideoCodec)
+	}
+	// HDR especially: the name said hdr10 and the bytes say nothing, so the
+	// guess has to be cleared or this release is tone-mapped forever.
+	if recorded.Part.HDRFormat != "" {
+		t.Errorf("HDR format = %q, want empty: a name's HDR guess outlived the probe", recorded.Part.HDRFormat)
+	}
+	// The summary names the track that would play, not the default-flagged one.
+	if recorded.Part.AudioCodec != "aac" {
+		t.Errorf("audio codec = %q, want aac", recorded.Part.AudioCodec)
+	}
+
+	// A pre-existing attribute from another writer must survive.
+	var attrs map[string]json.RawMessage
+	if err := json.Unmarshal(recorded.Part.Attributes, &attrs); err != nil {
+		t.Fatalf("attributes are not an object: %v", err)
+	}
+	if _, ok := attrs["source"]; !ok {
+		t.Error("recording a probe erased another writer's attribute")
+	}
+	if _, ok := attrs[app.ProbeAttribute]; !ok {
+		t.Fatal("the probe document was not stored")
+	}
+
+	// And the play path reads it back, unchanged, into the same plan.
+	warm, err := svc.ResolvePlayback(c, app.ResolvePlaybackQuery{
+		Caller: caller, PartID: attached.Part.ID, CapabilityClass: "class-browser",
+	})
+	if err != nil {
+		t.Fatalf("warm ResolvePlayback: %v", err)
+	}
+	stored, ok := playback.Decode(warm.Probe)
+	if !ok {
+		t.Fatal("the stored probe did not decode on the way back out")
+	}
+	if !reflect.DeepEqual(stored, info) {
+		t.Errorf("probe changed in storage:\n got %+v\nwant %+v", stored, info)
 	}
 }

@@ -117,7 +117,11 @@ func (h *Handler) playPart(ctx context.Context, s *liveSession, input []byte) (*
 	// the English audio" rather than either a whole-file transcode or a silent
 	// film. The plan travels sealed inside the ticket, so the origin does not
 	// re-probe on every range request a seeking player makes.
-	plan := h.planFor(ctx, res.URL, res.Headers, profile.codecs())
+	info, probed := h.mediaInfo(ctx, caller, res)
+	plan := playback.Plan{DirectPlay: true}
+	if probed {
+		plan = playback.Decide(info, profile.codecs(), nil)
+	}
 
 	// One record saying what was chosen and what will happen to it. Playback has
 	// three independent places to go wrong — selection, probing, and the encode
@@ -142,7 +146,11 @@ func (h *Handler) playPart(ctx context.Context, s *liveSession, input []byte) (*
 		// Whether the aggregator was asked at all (ADR 0049). A cache that has
 		// silently stopped hitting is indistinguishable from one that was never
 		// warm — both just look like playback being slow.
-		telemetry.Bool("cached", res.Cached))
+		telemetry.Bool("cached", res.Cached),
+		// Whether the bytes had to be probed again (ADR 0050). Once the
+		// aggregator call was cached this became the largest remaining cost
+		// between a click and a first frame, so it is the number to watch.
+		telemetry.Bool("probe_reused", probed && len(res.Probe) > 0))
 	ticket, err := h.tickets.Mint(res.URL, res.Headers, caller.Session, plan)
 	if err != nil {
 		return nil, contracts.WrapError(contracts.Internal, "mint playback ticket", err)
@@ -161,24 +169,70 @@ func (h *Handler) playPart(ctx context.Context, s *liveSession, input []byte) (*
 	return regionMsg(playerRegion, sessionv1.RegionUpdate_REPLACE, node), nil
 }
 
-// planFor probes the resolved location and decides how to carry each stream
-// (ADR 0050).
+// mediaInfo answers what the chosen release actually is, from storage when it is
+// already known and from ffprobe when it is not (ADR 0050).
 //
-// A probe failure is not a playback failure: relaying unprobed is exactly what
+// Reusing a stored probe is the whole reason this is worth having. A probe
+// describes bytes and bytes do not change, so the second play of a release was
+// paying for an answer nobody could have got wrong — and once ADR 0049's cache
+// removed the aggregator call, that payment was the largest thing left between a
+// click and a first frame.
+//
+// A probe failure is not a playback failure. Relaying unprobed is exactly what
 // happened before probing existed, so an absent ffprobe — or a source that will
 // not answer one — degrades to the previous behaviour rather than refusing to
 // play. The cost of that fallback is a silent film when the audio turns out to
 // be undecodable, which is the bug this exists to fix; it is still better than
 // no picture at all.
-func (h *Handler) planFor(ctx context.Context, url string, headers map[string]string, codecs playback.ClientCodecs) playback.Plan {
+func (h *Handler) mediaInfo(ctx context.Context, caller v1.Caller, res app.ResolvePlaybackResult) (playback.MediaInfo, bool) {
+	if info, ok := playback.Decode(res.Probe); ok {
+		return info, true
+	}
 	if h.prober == nil || !h.prober.Available() {
-		return playback.Plan{DirectPlay: true}
+		return playback.MediaInfo{}, false
 	}
-	info, err := h.prober.Probe(ctx, url, headers)
+	info, err := h.prober.Probe(ctx, res.URL, res.Headers)
 	if err != nil {
-		return playback.Plan{DirectPlay: true}
+		return playback.MediaInfo{}, false
 	}
-	return playback.Decide(info, codecs, nil)
+	h.recordProbe(ctx, caller, res.PartID, info)
+	return info, true
+}
+
+// recordProbe stores what the probe learned, so the next play of this release
+// skips it.
+//
+// Best-effort by design, and the failure worth naming is authorisation rather
+// than I/O: recording writes to the content graph, so it asks for
+// `content.bind`, and a read-only viewer does not have it. That viewer still
+// plays — they simply do not warm the cache for anyone, and every one of their
+// plays re-probes. It is the correct refusal and the wrong outcome, and the
+// missing piece is the system principal (ADR 0017): work that belongs to the
+// install rather than to whoever happened to press play.
+func (h *Handler) recordProbe(ctx context.Context, caller v1.Caller, partID v1.PartID, info playback.MediaInfo) {
+	if partID == "" {
+		return
+	}
+	doc, err := playback.Encode(info)
+	if err != nil {
+		return
+	}
+	_, err = h.svc.RecordPartProbe(ctx, app.RecordPartProbeCommand{
+		Caller: caller, PartID: partID,
+		Container:  info.Container,
+		VideoCodec: info.Video.Codec,
+		AudioCodec: playback.SummaryAudioCodec(info),
+		Width:      info.Video.Width,
+		Height:     info.Video.Height,
+		HDRFormat:  info.Video.HDRFormat,
+		SizeBytes:  info.SizeBytes,
+		Probe:      doc,
+	})
+	if err != nil {
+		telemetry.From(ctx).For("playback").Warn("storing the probe failed; this release will be probed again",
+			telemetry.Identifier("part", string(partID)),
+			telemetry.Err(err))
+	}
 }
 
 // playbackMimeType names what the origin will serve.

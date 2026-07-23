@@ -204,6 +204,15 @@ func boundaryCases() []boundaryCase {
 				Caller: caller(sid), PartID: "part-1",
 			}))
 		}},
+		// A write on a read path, which is why it is worth having a row here
+		// rather than an exemption: recording a probe is triggered by playing,
+		// but it mutates the content graph and must refuse an ungranted caller
+		// like any other mutation.
+		{"RecordPartProbe", func(ctx context.Context, s *app.Service, sid domain.SessionID) error {
+			return discard(s.RecordPartProbe(ctx, app.RecordPartProbeCommand{
+				Caller: caller(sid), PartID: "part-1", Probe: []byte(`{"v":1}`),
+			}))
+		}},
 
 		// --- user preferences and telemetry reads ---
 		{"SetUserPreference", func(ctx context.Context, s *app.Service, sid domain.SessionID) error {
