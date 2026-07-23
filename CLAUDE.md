@@ -204,10 +204,19 @@ registered; a user adds addons at runtime via the `configureModule` action
   (undecided) and a capability that introduces a genuinely new media type
   (the anime reference capability uses only known ones). Deferred; ADR 0015
   is amended to say so.
-- **Module-granular permissions and a system principal.** User permissions
-  management is built; a capability acts as its invoking user (ADR 0017).
-  Authority a *module* holds distinct from that user, and a system principal
-  for background (no-user) work, are scoped to future ADRs.
+- **Anything beyond one user.** Roles granting actions are built and are the
+  *only* authorization Mosaic has. ADR 0067 decides the rest and none of it
+  exists: a **content scope** (what an account may see — an age limit, a media
+  type set), which is a different mechanism from both roles and preferences and
+  must be pushed into the store query rather than post-filtered. ADR 0068
+  decides authentication beyond a password — **passkeys, attenuated API keys,
+  legacy Basic-auth adapters**, all resolving to one Principal, no JWT — and
+  none of that exists either. `domain.AuthStrength` has only ever held
+  `password`.
+- **Module-granular permissions and a system principal.** A capability acts as
+  its invoking user (ADR 0017). Authority a *module* holds distinct from that
+  user, and a system principal for background (no-user) work, are still scoped
+  to future ADRs — 0067 and 0068 cover users, not either of these.
 - **External-module *distribution*.** The optional-module *shape* now exists
   (its own Go module importing only the SDK, statically composed and invoked —
   the Stremio module, ADR 0019/0020). What is unbuilt is how a third-party
