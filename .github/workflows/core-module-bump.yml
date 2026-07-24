@@ -1,0 +1,140 @@
+name: core module bump
+
+# ADR 0078: core modules keep their own repositories, and a core module tag
+# carries its own version bump into this repository instead of a person doing
+# it by hand.
+#
+# The manual sequence this replaces was: tag the module, wait for or warm the
+# Go module proxy, bump the require here, run the gate, commit. The waiting
+# step is the one that most often went wrong, and it is already solved on the
+# other side — a module's release.yml proves a consumer can resolve the tag
+# through the public proxy before it finishes. This workflow is dispatched
+# *after* that proof, so `go get` here is not racing the proxy.
+#
+# **What this deliberately does not do is merge.** It opens a pull request and
+# turns on auto-merge, so `verify.yml` is what actually decides. ADR 0063's
+# guarantee that every released binary is pre-proven is a property of the gate
+# having run, and a required check on a PR is where that is enforced
+# mechanically rather than by trusting the ordering of steps in a job. The PR
+# also leaves the thing a bot commit on main would not: a record of which
+# module tag caused which Platform commit, which is most of the diagnosis the
+# first time a bump breaks the build.
+#
+# A core module tag produces a green `main`, not a Platform release. Releases
+# keep their own cadence and pick up whatever core versions are on main.
+#
+# Requires a `CORE_MODULE_BUMP_TOKEN` secret with `repo` scope on this
+# repository. The default `github.token` cannot receive a cross-repository
+# dispatch, and cannot open a PR that triggers `verify.yml`.
+
+on:
+  repository_dispatch:
+    types: [core-module-release]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  # Serialised across every module: two bumps landing at once would each open a
+  # PR against a go.mod the other is also editing, and the second to merge
+  # would conflict. One at a time is slower and always correct.
+  group: core-module-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.CORE_MODULE_BUMP_TOKEN }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The payload arrives from another repository, so it is input rather than
+      # fact. Two checks, in order of what they prevent.
+      - name: Validate the dispatch payload
+        env:
+          MODULE: ${{ github.event.client_payload.module }}
+          VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          if ! printf '%s' "$MODULE" | grep -Eq '^github\.com/mosaic-media/module-[a-z0-9-]+$'; then
+            echo "::error::refusing module path '$MODULE'" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::refusing version '$VERSION' — not vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+
+          # This is the load-bearing one: the module must ALREADY be required.
+          # It means a dispatch can only ever move a dependency this repository
+          # has already taken deliberately, never introduce a new one. Adding a
+          # core module stays a human decision with a human commit.
+          if ! go list -m "$MODULE" >/dev/null 2>&1; then
+            echo "::error::$MODULE is not currently required by this module." >&2
+            echo "Adding a core module is a deliberate change, not a dispatch." >&2
+            exit 1
+          fi
+
+          current=$(go list -m -f '{{.Version}}' "$MODULE")
+          {
+            echo "module=$MODULE"
+            echo "version=$VERSION"
+            echo "current=$current"
+            echo "short=${MODULE##*/}"
+          } >> "$GITHUB_ENV"
+
+      - name: Skip if already at that version
+        run: |
+          if [ "$current" = "$version" ]; then
+            echo "already at $version — nothing to do"
+            echo "skip=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Bump the require
+        if: env.skip != 'true'
+        env:
+          GOPROXY: https://proxy.golang.org,direct
+          GOFLAGS: -mod=mod
+        run: |
+          go get "${module}@${version}"
+          go mod tidy
+
+      # Nothing beyond `go build` runs here on purpose. verify.yml is the gate
+      # and it runs on the pull request this opens; duplicating it would create
+      # a second copy that can drift from the real one. The build is here only
+      # so an obviously broken bump fails before a PR exists for it.
+      - name: Build
+        if: env.skip != 'true'
+        run: go build ./...
+
+      - name: Open the pull request
+        if: env.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CORE_MODULE_BUMP_TOKEN }}
+        run: |
+          branch="bump/${short}-${version}"
+          git config user.name "AdamNi-7080"
+          git config user.email "anicholls41@gmail.com"
+          git checkout -b "$branch"
+          git add go.mod go.sum
+          git commit -m "$(printf '%s\n\n%s\n\n%s' \
+            "Bump ${short} to ${version}" \
+            "Dispatched by ${module}'s release workflow, which proved the tag resolvable through the public proxy before firing (ADR 0078)." \
+            "Previous version: ${current}.")"
+          git push origin "$branch"
+
+          gh pr create \
+            --title "Bump ${short} to ${version}" \
+            --body "$(printf '%s\n\n%s\n\n%s' \
+              "Automated core module bump: \`${current}\` → \`${version}\` (ADR 0078)." \
+              "Dispatched by [\`${short}\`](https://${module}/releases/tag/${version}) after its release workflow proved the tag resolvable through the public proxy." \
+              "Auto-merge is on; \`verify.yml\` decides.")" \
+            --base main \
+            --head "$branch"
+
+          gh pr merge "$branch" --auto --squash
