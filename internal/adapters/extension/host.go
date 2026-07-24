@@ -65,7 +65,19 @@ type Module struct {
 	// the registry can tell.
 	Capability v1.Capability
 
-	client *goplugin.Client
+	client      *goplugin.Client
+	invocations *invocations
+}
+
+// LiveInvocations reports how many invocation handles are currently valid. It
+// exists so a test can assert the table empties — a handle that outlives its
+// invocation is the failure this whole mechanism prevents, and a leak is
+// otherwise invisible until it is large.
+func (m *Module) LiveInvocations() int {
+	if m.invocations == nil {
+		return 0
+	}
+	return m.invocations.count()
 }
 
 // Close terminates the module process. It is safe to call more than once.
@@ -102,10 +114,23 @@ func Launch(cfg Config) (*Module, error) {
 		return nil, contracts.NewError(contracts.InvalidArgument, "extension: no binary path")
 	}
 
+	// The invocation table, and the two wrappers that use it (ADR 0064). The
+	// module never sees a real session reference: it is handed a handle that
+	// stops resolving the moment the invocation returns, and the ContentService
+	// it calls back into exchanges that handle for the Caller it was minted
+	// for. Both halves are needed — minting without resolving would hand out
+	// meaningless strings, and resolving without minting would have nothing to
+	// resolve.
+	inv := newInvocations()
+
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig: host.Handshake,
-		Plugins:         host.ClientPluginMap(cfg.Content, cfg.Telemetry, categoryOf),
-		Cmd:             exec.Command(cfg.BinaryPath), //nolint:gosec // the path is the Supervisor's, verified before we see it.
+		Plugins: host.ClientPluginMap(
+			&resolvingContent{inner: cfg.Content, inv: inv},
+			cfg.Telemetry,
+			categoryOf,
+		),
+		Cmd: exec.Command(cfg.BinaryPath), //nolint:gosec // the path is the Supervisor's, verified before we see it.
 		AllowedProtocols: []goplugin.Protocol{
 			// gRPC only. net/rpc is Go-specific and would close the door on a
 			// module written in another language (ADR 0077).
@@ -147,7 +172,11 @@ func Launch(cfg Config) (*Module, error) {
 		return nil, err
 	}
 
-	return &Module{Capability: capability, client: client}, nil
+	return &Module{
+		Capability:  &guardedCapability{inner: capability, inv: inv},
+		client:      client,
+		invocations: inv,
+	}, nil
 }
 
 // checkManifest compares what the manifest file declared against what the
