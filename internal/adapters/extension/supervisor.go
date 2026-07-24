@@ -145,8 +145,9 @@ func DefaultRestartPolicy() RestartPolicy {
 //
 // A first-launch failure is returned rather than retried, because a module that
 // cannot start even once is more likely misconfigured than crash-looping, and
-// the composition root should see that plainly rather than have it buried in a
-// backoff. Retry-from-nothing is the Supervisor's job, not this one's.
+// the caller should see that plainly rather than have it buried in a backoff.
+// Re-acquiring a module that will not start at all — re-download, re-verify — is
+// the extension-management layer's job (ADR 0079), not this monitor's.
 func Supervise(cfg Config, policy RestartPolicy, tel v1.Telemetry) (*Supervised, error) {
 	m, err := Launch(cfg)
 	if err != nil {

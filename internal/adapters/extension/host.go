@@ -39,10 +39,11 @@ import (
 
 // Config is what the Platform needs to launch one module.
 type Config struct {
-	// BinaryPath is the module executable. The Supervisor installs it and
-	// verifies its signature and digest before the Platform is ever handed the
-	// path (ADR 0065); this package assumes that has happened and does not
-	// re-check, because a second unverified check would suggest it is the gate.
+	// BinaryPath is the module executable. The Platform installs it and verifies
+	// its signature and digest before it reaches Launch (ADR 0065's mechanism,
+	// Platform-side per ADR 0079); this function is the spawn step, downstream of
+	// that verification, and does not re-check — the check belongs where the
+	// download lands, not at every launch of an already-verified binary.
 	BinaryPath string
 
 	// DeclaredManifest is what the module's *manifest file* claimed, read
@@ -51,7 +52,8 @@ type Config struct {
 	//
 	// The zero value skips the check, which is correct only where there is no
 	// manifest file to compare against: today's dev and test paths, before the
-	// Supervisor exists. It is not a way to opt out in production.
+	// Platform's install-and-verify path exists. It is not a way to opt out in
+	// production.
 	DeclaredManifest v1.Manifest
 
 	// Content and Telemetry are what the module calls back into. Every call it
@@ -198,7 +200,7 @@ func Launch(cfg Config) (*Module, error) {
 		}
 	}()
 
-	cmd := exec.Command(cfg.BinaryPath) //nolint:gosec // the path is the Supervisor's, verified before we see it.
+	cmd := exec.Command(cfg.BinaryPath) //nolint:gosec // the path is the Platform's own, verified at install before we see it (ADR 0079).
 	// Route the module's HTTP client through the proxy. Go's default transport
 	// reads these, so a module using an ordinary client — as every module does —
 	// routes through without any change to its code. NO_PROXY is cleared so
