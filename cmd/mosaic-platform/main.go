@@ -49,6 +49,7 @@ import (
 	"github.com/mosaic-media/platform/internal/transport/playback"
 	"github.com/mosaic-media/platform/internal/transport/rpc"
 	"github.com/mosaic-media/platform/internal/transport/session"
+	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 )
 
 // postgresDSNEnv names the environment variable carrying the PostgreSQL
@@ -87,6 +88,16 @@ const (
 // reason as the DSN above: the level is a Hot-class configuration field once
 // the config pipeline owns it, and this stands in until then.
 const logLevelEnv = "MOSAIC_LOG_LEVEL"
+
+// moduleSelectionEnv names the environment variable carrying the module
+// selection (ADR 0063): a comma-separated list of core module ids to wire in.
+// Unset means every module the binary carries, so an unconfigured deployment
+// gets the full set. Set-but-empty selects nothing, which
+// RequireComposedRoleClasses then refuses if it leaves a required class empty.
+// Selection is Generation-class configuration; this env read is the bridge
+// until the Supervisor activates a Generation with a selection, the same bridge
+// the DSN and log level take.
+const moduleSelectionEnv = "MOSAIC_MODULES"
 
 // serviceName and serviceVersion identify this process on every record it
 // emits. Mosaic is one host running more than one process — this one, the
@@ -139,75 +150,117 @@ func superuserPermissions() []domain.Permission {
 // Cinemeta and TMDB back the metadata/search class ADR 0035 requires, remote
 // playback backs the consumer class without which the library is inert — and
 // three, Stremio, AIOStreams and fanart.tv, are extension modules. Nothing here
-// distinguishes them, and that is the design: the tier is a delivery and
+// distinguishes them by tier, and that is the design: the tier is a delivery and
 // coupling decision, not a contract decision, so all six implement the same SDK
-// interfaces and register identically. The distinction becomes visible when the
-// Supervisor selects which core modules a Generation wires in (ADR 0063); until
-// then this function is the selection.
+// interfaces and register identically.
+//
+// What *does* distinguish them now is selection (ADR 0063). A module the
+// selection does not name is never constructed — its New is not called, no
+// resource it holds is opened, and the registry never sees it. The default is
+// every module, so an unconfigured deployment is unchanged; a selection is how
+// an admin drops one. The Supervisor will drive this by activating a Generation
+// with a different selection; until it exists the selection is read from the
+// environment, the same bridge the DSN and log level take.
 //
 // fanart.tv is the first module here that fills neither a source role nor a
 // consumer role (ADR 0075) — it enriches content another module already
 // identified, reached only through the artwork enrichment pass rather than
 // through any ContentRef, so its registration looks identical to the others
 // while its invocation path does not.
-func registerCapabilities(reg *app.CapabilityRegistry, httpClient *http.Client) {
-	// The Cinemeta metadata module — the zero-configuration floor under the
-	// required metadata/search class (ADR 0072). It is what makes a fresh install
-	// work with nothing set: no key, no URL, no settings document at all, so
-	// there is nothing about it a deployment can get wrong.
-	//
-	// It is registered *before* TMDB because the registry resolves in module-id
-	// order, and "cinemeta" sorting ahead of "tmdb" is an accident rather than a
-	// policy — which is worth saying plainly, since which provider wins for a
-	// given field is an open seam and neither this ordering nor that one answers
-	// it.
-	reg.Register(cinemeta.New(httpClient))
-	// The TMDB metadata module — the richer provider of the same class, for a
-	// deployment willing to hold an API key. It needs one, set through its own
-	// settings screen (ADR 0038), and every role reports that plainly until one
-	// exists; Cinemeta is what keeps the class satisfied in the meantime.
-	reg.Register(tmdb.New(httpClient))
-	// The Stremio addon-source module. It is always registered: the addons it
-	// sources from are user-managed settings (ADR 0021), set at runtime through
-	// configureModule rather than baked in at composition, so the module is
-	// available even before any addon is configured.
-	// Handed the Platform's client rather than nil (ADR 0055, seam 9): it spans
-	// every outbound call and, more importantly, routes through netguard's dial
-	// guard. A module builds its own client when given nil, which bypassed the
-	// SSRF protection entirely for the one caller that fetches URLs a user
-	// supplied.
-	reg.Register(stremio.New(httpClient))
-	// The AIOStreams module — a stream source for one named upstream, beside the
-	// open-ended addon list above. It is the answer to a question that module
-	// cannot answer: a Stremio addon is community-made and unreviewed, and Mosaic
-	// has no access-control story that makes an arbitrary addon list safe to
-	// recommend, so an install that only wants streams should not have to adopt
-	// that whole surface. AIOStreams is itself an aggregator, so the breadth
-	// survives and the trust decision becomes one instance URL.
-	//
-	// It registers before Stremio in id order, which the stream-enrichment fan-out
-	// reads as precedence: it is asked first and stops the search when it answers
-	// (ADR 0073). That is the intended order and it is alphabetical accident, the
-	// same seam as the cinemeta/tmdb ordering above.
-	//
-	// Handed the Platform's client for the same reason Stremio is: the instance
-	// URL is text a user typed, and only that client routes through netguard's
-	// dial guard.
-	reg.Register(aiostreams.New(httpClient))
-	// The remote playback module — the first *consumer* capability (ADR 0045).
-	// Registering it is what stops the library being inert: the Stremio module
-	// above snapshots a stream location at import, and this is what can turn
-	// that location back into playable bytes.
-	reg.Register(remoteplayback.New())
-	// The fanart.tv artwork module — the first module reached only through
-	// enrichment rather than through any ContentRef (ADR 0075). It fills
-	// RoleArtwork alone: it illustrates content another module identified and
-	// must never declare RoleMetadata, RoleSearch or RoleCatalog, which its own
-	// boundary test asserts. Registering it costs nothing when it is
-	// unconfigured or unaddressable for a title — the artwork enrichment pass is
-	// best-effort, and a deployment with no artwork provider sees exactly what it
-	// saw before this module existed.
-	reg.Register(fanarttv.New(httpClient))
+func registerCapabilities(reg *app.CapabilityRegistry, sel app.Selection, httpClient *http.Client, boot *telemetry.Logger) {
+	for _, d := range moduleDescriptors(httpClient) {
+		if !sel.Selected(d.id) {
+			boot.Info("module not selected; not constructed", telemetry.String("module", d.id))
+			continue
+		}
+		reg.Register(d.construct())
+	}
+}
+
+// moduleDescriptor pairs a module's stable id with a thunk that constructs it.
+// The thunk is what makes "not selected, not constructed" real: an unselected
+// module's New is never called, so nothing it holds is opened.
+type moduleDescriptor struct {
+	id        string
+	construct func() v1.Capability
+}
+
+// moduleDescriptors is the list the selection is applied to — the one place that
+// names concrete modules, the composition-root equivalent of the Build
+// Pipeline's generated imports (ADR 0007).
+func moduleDescriptors(httpClient *http.Client) []moduleDescriptor {
+	return []moduleDescriptor{
+		// The Cinemeta metadata module — the zero-configuration floor under the
+		// required metadata/search class (ADR 0072). It is what makes a fresh
+		// install work with nothing set: no key, no URL, no settings document at
+		// all, so there is nothing about it a deployment can get wrong. This is
+		// why the default selection includes everything — dropping it from the
+		// default would boot an inert Mosaic.
+		//
+		// It sorts before TMDB in id order, which the registry resolves in, and
+		// "cinemeta" ahead of "tmdb" is an accident rather than a policy — which
+		// provider wins for a given field is an open seam neither ordering
+		// answers.
+		{cinemeta.CapabilityID, func() v1.Capability { return cinemeta.New(httpClient) }},
+		// The TMDB metadata module — the richer provider of the same class, for a
+		// deployment willing to hold an API key. It needs one, set through its own
+		// settings screen (ADR 0038), and every role reports that plainly until
+		// one exists; Cinemeta is what keeps the class satisfied in the meantime.
+		{tmdb.CapabilityID, func() v1.Capability { return tmdb.New(httpClient) }},
+		// The Stremio addon-source module. The addons it sources from are
+		// user-managed settings (ADR 0021), set at runtime through configureModule
+		// rather than baked in at composition, so the module is available even
+		// before any addon is configured.
+		//
+		// Handed the Platform's client rather than nil (ADR 0055, seam 9): it
+		// spans every outbound call and, more importantly, routes through
+		// netguard's dial guard. A module builds its own client when given nil,
+		// which bypassed the SSRF protection entirely for the one caller that
+		// fetches URLs a user supplied.
+		{stremio.CapabilityID, func() v1.Capability { return stremio.New(httpClient) }},
+		// The AIOStreams module — a stream source for one named upstream, beside
+		// the open-ended addon list above. It is the answer to a question that
+		// module cannot answer: a Stremio addon is community-made and unreviewed,
+		// and Mosaic has no access-control story that makes an arbitrary addon
+		// list safe to recommend, so an install that only wants streams should not
+		// have to adopt that whole surface. AIOStreams is itself an aggregator, so
+		// the breadth survives and the trust decision becomes one instance URL.
+		//
+		// It sorts before Stremio in id order, which the stream-enrichment fan-out
+		// reads as precedence: it is asked first and stops the search when it
+		// answers (ADR 0073). That is the intended order and it is alphabetical
+		// accident, the same seam as the cinemeta/tmdb ordering above.
+		//
+		// Handed the Platform's client for the same reason Stremio is: the
+		// instance URL is text a user typed, and only that client routes through
+		// netguard's dial guard.
+		{aiostreams.CapabilityID, func() v1.Capability { return aiostreams.New(httpClient) }},
+		// The remote playback module — the first *consumer* capability (ADR 0045).
+		// Registering it is what stops the library being inert: the Stremio module
+		// above snapshots a stream location at import, and this is what can turn
+		// that location back into playable bytes.
+		{remoteplayback.CapabilityID, func() v1.Capability { return remoteplayback.New() }},
+		// The fanart.tv artwork module — the first module reached only through
+		// enrichment rather than through any ContentRef (ADR 0075). It fills
+		// RoleArtwork alone: it illustrates content another module identified and
+		// must never declare RoleMetadata, RoleSearch or RoleCatalog, which its
+		// own boundary test asserts. Registering it costs nothing when it is
+		// unconfigured or unaddressable for a title — the artwork enrichment pass
+		// is best-effort, and a deployment with no artwork provider sees exactly
+		// what it saw before this module existed.
+		{fanarttv.CapabilityID, func() v1.Capability { return fanarttv.New(httpClient) }},
+	}
+}
+
+// moduleIDs is the set of core module ids the binary carries, for validating a
+// selection names only modules that exist.
+func moduleIDs(httpClient *http.Client) []string {
+	descs := moduleDescriptors(httpClient)
+	ids := make([]string, len(descs))
+	for i, d := range descs {
+		ids[i] = d.id
+	}
+	return ids
 }
 
 func main() {
@@ -429,12 +482,27 @@ func run() error {
 	// first time the composition root constructs app.Service: every dependency
 	// it needs is already on the ContractSet, plus the ABAC policy engine, the
 	// event bus as the audit publisher, and the Argon2id password hasher.
-	// Register the optional-module capabilities the Platform can invoke. This
-	// is the composition-root stand-in for ADR 0007's build-time module
-	// selection: modules are registered here explicitly rather than discovered,
-	// until the Supervisor's Build Pipeline generates the imports.
+	// Which modules to wire in (ADR 0063). Read from the environment, the same
+	// bridge the DSN and log level take until a config pipeline owns it, and
+	// unset means every module — so an unconfigured deployment gets the full set
+	// and works out of the box. A selection is validated against what the binary
+	// carries before anything is constructed, so a typo names the mistake rather
+	// than silently dropping the module it misspelled.
+	moduleClient := netguard.ModuleClient()
+	selection := app.SelectAll()
+	if spec, ok := os.LookupEnv(moduleSelectionEnv); ok {
+		selection = app.ParseSelection(spec)
+	}
+	if err := selection.Validate(moduleIDs(moduleClient)); err != nil {
+		return fmt.Errorf("invalid %s: %w", moduleSelectionEnv, err)
+	}
+
+	// Register the selected module capabilities the Platform can invoke. This is
+	// the composition-root stand-in for ADR 0007's build-time module selection:
+	// modules are registered here explicitly rather than discovered, until the
+	// Supervisor activates a Generation with a selection.
 	capRegistry := app.NewCapabilityRegistry()
-	registerCapabilities(capRegistry, netguard.ModuleClient())
+	registerCapabilities(capRegistry, selection, moduleClient, boot)
 	// Fail boot if a capability declares a provider role it does not implement
 	// (ADR 0027): a role named but unbacked would otherwise surface as a nil
 	// provider at invocation, not at composition.
