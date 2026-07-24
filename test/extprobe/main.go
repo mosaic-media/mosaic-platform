@@ -24,6 +24,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"strconv"
+	"time"
 
 	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 	"github.com/mosaic-media/sdk/host"
@@ -121,5 +124,42 @@ func (probe) Search(_ context.Context, req v1.SearchRequest) (v1.SearchResponse,
 }
 
 func main() {
+	// Controlled death, for the lifecycle tests (ADR 0064's step 3). A real
+	// module has no such switch; this exists only so the Platform's restart,
+	// backoff and crash-loop policy can be exercised against a process that
+	// actually dies rather than one whose crash is imagined.
+	//
+	// The exit is armed *before* Serve and fires from a goroutine, so the
+	// handshake completes first and go-plugin reports a live process that then
+	// dies — which is the case the monitor must catch. Exiting before Serve
+	// would instead fail the launch, a different path the tests cover separately.
+	armSelfDestruct()
 	host.Serve(probe{})
+}
+
+// armSelfDestruct exits the process after a delay when EXTPROBE_EXIT_AFTER_MS is
+// set, optionally only on the first launch (when EXTPROBE_CRASH_ONCE names a
+// marker file that a surviving second launch finds already present).
+func armSelfDestruct() {
+	ms := os.Getenv("EXTPROBE_EXIT_AFTER_MS")
+	if ms == "" {
+		return
+	}
+	delay, err := strconv.Atoi(ms)
+	if err != nil {
+		return
+	}
+
+	if marker := os.Getenv("EXTPROBE_CRASH_ONCE"); marker != "" {
+		if _, err := os.Stat(marker); err == nil {
+			return // a previous launch left the marker; this one survives.
+		}
+		// First launch: leave the marker so the next one survives, then die.
+		_ = os.WriteFile(marker, []byte("crashed"), 0o600)
+	}
+
+	go func() {
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+		os.Exit(1)
+	}()
 }

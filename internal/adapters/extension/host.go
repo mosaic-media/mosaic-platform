@@ -57,6 +57,13 @@ type Config struct {
 	// no authority of its own.
 	Content   v1.ContentService
 	Telemetry v1.Telemetry
+
+	// Env is extra environment for the module process, appended to the
+	// Platform's own. It exists for the lifecycle tests to drive a controlled
+	// crash; a production launch leaves it empty, and the egress design (ADR
+	// 0064) deliberately does not pass configuration this way — module settings
+	// are the opaque document (ADR 0021), not the environment.
+	Env []string
 }
 
 // Module is a launched module process and the capability it serves.
@@ -66,7 +73,30 @@ type Module struct {
 	Capability v1.Capability
 
 	client      *goplugin.Client
+	rpcClient   goplugin.ClientProtocol
 	invocations *invocations
+}
+
+// alive reports whether the module process is still answering, not merely still
+// running (ADR 0064: the Platform is the only component that can tell the
+// difference, which is why lifecycle lives here). The gRPC ping is one round
+// trip to the child, so a wedged-but-not-exited process fails it; deadline is
+// the caller's to set.
+func (m *Module) alive(ctx context.Context) bool {
+	if m.client.Exited() {
+		return false
+	}
+	// Ping has no context parameter, so a hung process would block it forever.
+	// Bounding it is the whole point of an active probe over a bare Exited()
+	// check, so the ping runs in a goroutine the deadline can abandon.
+	done := make(chan error, 1)
+	go func() { done <- m.rpcClient.Ping() }()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // LiveInvocations reports how many invocation handles are currently valid. It
@@ -123,6 +153,11 @@ func Launch(cfg Config) (*Module, error) {
 	// resolve.
 	inv := newInvocations()
 
+	cmd := exec.Command(cfg.BinaryPath) //nolint:gosec // the path is the Supervisor's, verified before we see it.
+	if len(cfg.Env) > 0 {
+		cmd.Env = append(cmd.Environ(), cfg.Env...)
+	}
+
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig: host.Handshake,
 		Plugins: host.ClientPluginMap(
@@ -130,7 +165,7 @@ func Launch(cfg Config) (*Module, error) {
 			cfg.Telemetry,
 			categoryOf,
 		),
-		Cmd: exec.Command(cfg.BinaryPath), //nolint:gosec // the path is the Supervisor's, verified before we see it.
+		Cmd: cmd,
 		AllowedProtocols: []goplugin.Protocol{
 			// gRPC only. net/rpc is Go-specific and would close the door on a
 			// module written in another language (ADR 0077).
@@ -175,6 +210,7 @@ func Launch(cfg Config) (*Module, error) {
 	return &Module{
 		Capability:  &guardedCapability{inner: capability, inv: inv},
 		client:      client,
+		rpcClient:   rpcClient,
 		invocations: inv,
 	}, nil
 }
