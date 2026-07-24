@@ -49,8 +49,6 @@ import (
 	"github.com/mosaic-media/platform/internal/transport/playback"
 	"github.com/mosaic-media/platform/internal/transport/rpc"
 	"github.com/mosaic-media/platform/internal/transport/session"
-
-	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 )
 
 // postgresDSNEnv names the environment variable carrying the PostgreSQL
@@ -443,13 +441,16 @@ func run() error {
 	if err := capRegistry.Verify(); err != nil {
 		return fmt.Errorf("capability registry invalid: %w", err)
 	}
-	// Metadata and search are a required capability class, not a required module
-	// (ADR 0035, re-expressed by ADR 0063 over the composed set). A Mosaic that
-	// cannot identify or find content is inert rather than degraded, so this is
-	// the same class of fatal startup error as a missing required built-in
-	// module. It binds the serving composition and not the app.Service
-	// constructor, so tests that build a service directly are unaffected.
-	if err := capRegistry.RequireRoles(v1.RoleMetadata, v1.RoleSearch); err != nil {
+	// Every required role class must be filled over the composed set — core and
+	// extension together (ADR 0063 re-expressing ADR 0035). A Mosaic that cannot
+	// identify or find content is inert rather than degraded, so this is the same
+	// class of fatal startup error as a missing required built-in module. The
+	// required roles come from the role-class table (app.RoleClasses) rather than
+	// a hand-kept list here, so adding a required class is a table edit and not a
+	// second place to remember. It binds the serving composition and not the
+	// app.Service constructor, so tests that build a service directly are
+	// unaffected.
+	if err := capRegistry.RequireComposedRoleClasses(); err != nil {
 		return fmt.Errorf("required capability missing: %w", err)
 	}
 	for _, m := range capRegistry.Manifests() {
