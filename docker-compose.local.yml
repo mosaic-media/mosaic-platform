@@ -3,7 +3,7 @@
 #   docker compose -f docker-compose.dev.yml -f docker-compose.local.yml up
 #
 # The base file builds against published versions. This one swaps in the sibling
-# working copies, so an edit in `sdk`, `sdui` or a module is picked up by a
+# working copies, so an edit in `sdk`, `contracts` or a module is picked up by a
 # restart rather than by a tag-and-publish round trip.
 #
 # It expects the repositories checked out as siblings, which the platform
@@ -11,7 +11,7 @@
 #
 #   Mosaic/
 #     platform/            <- this repository
-#     sdk/  sdui/
+#     sdk/  contracts/
 #     module-stremio-addons/  module-aiostreams/  module-remote-playback/
 #     module-tmdb/  module-cinemeta/
 #     web/
@@ -23,15 +23,22 @@
 # builds on one machine, which is how a `replace` for a published module ends up
 # committed by accident.
 #
-# **npm side: the lockfile already links `@mosaic-media/sdui` to `../sdui`**, so
-# the sibling only has to be present at the matching path. Without it npm does
-# not error — it silently falls back to a stale hoisted version, and the failure
-# surfaces two layers away as a missing export.
+# **npm side: there is no local override, and this file used to claim there
+# was.** The comment here read "the lockfile already links `@mosaic-media/sdui`
+# to `../sdui`". It does not: `web/package-lock.json` resolves that package from
+# `https://registry.npmjs.org`, pinned by integrity hash. The same wrong belief
+# in `web`'s CLAUDE.md is what let the Shell sit on a stale contract version
+# while a field was silently dropped on the wire — no error at any layer.
+#
+# So a local edit in `contracts` reaches the Go side through the workspace below
+# and does **not** reach the Shell. Making it do so needs an npm link or a
+# workspace entry that does not exist yet; the mount on the `web` service is
+# kept so the path resolves, not because npm reads it.
 services:
   platform:
     volumes:
       - ../sdk:/src/sdk
-      - ../sdui:/src/sdui
+      - ../contracts:/src/contracts
       - ../module-stremio-addons:/src/module-stremio-addons
       - ../module-aiostreams:/src/module-aiostreams
       - ../module-remote-playback:/src/module-remote-playback
@@ -41,7 +48,7 @@ services:
       # GOWORK points the workspace *outside* the bind mount. Writing go.work
       # into /src/platform would put it on the host, where its container paths
       # are meaningless — it broke host builds the first time, with errors about
-      # /src/sdui not existing. A workspace is a local-development artifact and
+      # /src/contracts not existing. A workspace is a local-development artifact and
       # must not escape into a repository.
       GOWORK: /work/go.work
     # Written at start rather than baked into the image: the image is shared with
@@ -50,12 +57,13 @@ services:
       sh -c "mkdir -p /work &&
              rm -f /work/go.work &&
              go work init &&
-             go work use /src/platform /src/sdk /src/sdui /src/module-stremio-addons /src/module-aiostreams /src/module-remote-playback /src/module-tmdb /src/module-cinemeta &&
+             go work use /src/platform /src/sdk /src/contracts /src/module-stremio-addons /src/module-aiostreams /src/module-remote-playback /src/module-tmdb /src/module-cinemeta &&
              cd /src/platform &&
              exec go run ./cmd/mosaic-platform"
 
   web:
     volumes:
-      # Mounted at the path the lockfile's link resolves to, relative to the web
-      # root. sdui-react is a workspace package and needs no mount.
-      - ../sdui:/src/sdui
+      # Kept so the path resolves, not because npm reads it — see the npm note
+      # at the top of this file. sdui-react is a workspace package and needs no
+      # mount either way.
+      - ../contracts:/src/contracts

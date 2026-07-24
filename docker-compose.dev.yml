@@ -105,13 +105,19 @@ services:
       MOSAIC_PLATFORM_URL: "http://platform:8081"
     volumes:
       - ../web:/src/web
-      # The one remaining exception to "published": the web lockfile links
-      # @mosaic-media/sdui to ../sdui rather than the registry. npm does not
-      # error when the target is missing — it silently resolves a stale hoisted
-      # version, and the failure surfaces two layers away as a missing export.
+      # This comment used to say the web lockfile links @mosaic-media/sdui to
+      # the sibling checkout rather than the registry. It does not:
+      # web/package-lock.json resolves that package from registry.npmjs.org,
+      # pinned by integrity hash. Believing otherwise is what let the Shell run
+      # against a stale contract version while a field was dropped on the wire
+      # with no error at any layer.
+      #
+      # The mount is kept so the path resolves, but npm does not read it — a
+      # local contracts edit does not reach the Shell without an npm link that
+      # does not exist yet.
       # (module-remote-playback used to need a mount here too; it is published
       # now, so the Go side of this file needs no checkouts at all.)
-      - ../sdui:/src/sdui
+      - ../contracts:/src/contracts
       - mosaic-dev-npm:/root/.npm
       # node_modules are volumes rather than part of the bind mount: an npm
       # install writes tens of thousands of small files, which is the worst
