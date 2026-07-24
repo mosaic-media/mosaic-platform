@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"sort"
 
 	goplugin "github.com/hashicorp/go-plugin"
@@ -33,6 +34,7 @@ import (
 	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 
 	"github.com/mosaic-media/platform/internal/platform/contracts"
+	"github.com/mosaic-media/platform/internal/transport/moduleproxy"
 )
 
 // Config is what the Platform needs to launch one module.
@@ -61,9 +63,21 @@ type Config struct {
 	// Env is extra environment for the module process, appended to the
 	// Platform's own. It exists for the lifecycle tests to drive a controlled
 	// crash; a production launch leaves it empty, and the egress design (ADR
-	// 0064) deliberately does not pass configuration this way — module settings
-	// are the opaque document (ADR 0021), not the environment.
+	// 0064) deliberately does not pass module *configuration* this way — module
+	// settings are the opaque document (ADR 0021), not the environment. The
+	// egress proxy address below is the exception, and it is Platform plumbing
+	// rather than module configuration.
 	Env []string
+
+	// AllowPrivateEgress is the operator override on the egress proxy (ADR
+	// 0064): the module may reach loopback, RFC1918 and link-local targets. It
+	// defaults off, so a module fetching a user-supplied URL cannot reach the
+	// host's own network. A test whose fake upstream is on loopback sets it, the
+	// same override an operator sets for a service on their LAN.
+	//
+	// The module's egress proxy shares Config.Telemetry above for its per-host
+	// attribution (seam 9): host only, never content.
+	AllowPrivateEgress bool
 }
 
 // Module is a launched module process and the capability it serves.
@@ -75,6 +89,7 @@ type Module struct {
 	client      *goplugin.Client
 	rpcClient   goplugin.ClientProtocol
 	invocations *invocations
+	proxy       *moduleproxy.Proxy
 }
 
 // alive reports whether the module process is still answering, not merely still
@@ -120,6 +135,9 @@ func (m *Module) Close() {
 	if m.client != nil {
 		m.client.Kill()
 	}
+	if m.proxy != nil {
+		m.proxy.Close()
+	}
 }
 
 // Launch starts the module process, completes the handshake, and returns a
@@ -153,9 +171,55 @@ func Launch(cfg Config) (*Module, error) {
 	// resolve.
 	inv := newInvocations()
 
+	// The egress proxy (ADR 0064). Every outbound call the module makes routes
+	// through it — HTTP_PROXY/HTTPS_PROXY below point the module's HTTP client at
+	// it — so the deny list that guarded the in-process client's dials guards
+	// this one's too, and every host the module contacts is attributed to it.
+	// One proxy per module makes that attribution inherent.
+	label := cfg.DeclaredManifest.ID
+	if label == "" {
+		label = filepath.Base(cfg.BinaryPath)
+	}
+	proxy, err := moduleproxy.Start(moduleproxy.Options{
+		ModuleID:     label,
+		AllowPrivate: cfg.AllowPrivateEgress,
+		Log:          cfg.Telemetry,
+	})
+	if err != nil {
+		return nil, contracts.WrapError(contracts.Unavailable, "extension: starting egress proxy", err)
+	}
+	// The proxy outlives Launch only on success. Every error path below closes
+	// it here rather than at each return, so a failed launch cannot leak a
+	// listener.
+	launched := false
+	defer func() {
+		if !launched {
+			proxy.Close()
+		}
+	}()
+
 	cmd := exec.Command(cfg.BinaryPath) //nolint:gosec // the path is the Supervisor's, verified before we see it.
+	// Route the module's HTTP client through the proxy. Go's default transport
+	// reads these, so a module using an ordinary client — as every module does —
+	// routes through without any change to its code. NO_PROXY is cleared so
+	// nothing is exempted: the loopback the proxy itself listens on is reached by
+	// the module dialling the proxy, not by the module being allowed to bypass it
+	// for loopback targets.
+	cmd.Env = append(cmd.Environ(),
+		// The Mosaic-specific variable sdk/host reads to force *all* egress
+		// through the proxy, loopback included — which the standard variables
+		// below cannot do, because Go's ProxyFromEnvironment excludes loopback
+		// (ADR 0064; sdk/host's egress.go carries the detail).
+		host.EgressProxyEnv+"="+proxy.Addr(),
+		// The standard variables too, as defence in depth: a module not built
+		// against sdk/host, or one deliberately using ProxyFromEnvironment, still
+		// routes its non-loopback egress through the proxy.
+		"HTTP_PROXY="+proxy.Addr(),
+		"HTTPS_PROXY="+proxy.Addr(),
+		"NO_PROXY=",
+	)
 	if len(cfg.Env) > 0 {
-		cmd.Env = append(cmd.Environ(), cfg.Env...)
+		cmd.Env = append(cmd.Env, cfg.Env...)
 	}
 
 	client := goplugin.NewClient(&goplugin.ClientConfig{
@@ -207,11 +271,13 @@ func Launch(cfg Config) (*Module, error) {
 		return nil, err
 	}
 
+	launched = true
 	return &Module{
 		Capability:  &guardedCapability{inner: capability, inv: inv},
 		client:      client,
 		rpcClient:   rpcClient,
 		invocations: inv,
+		proxy:       proxy,
 	}, nil
 }
 

@@ -130,6 +130,11 @@ func launchStremio(t *testing.T, content v1.ContentService, addonURL string) (*e
 	m, err := extension.Launch(extension.Config{
 		BinaryPath: buildStremio(t),
 		Content:    content,
+		// The fake addon is on loopback, so the egress proxy must allow private
+		// targets — the same override an operator sets for a LAN addon. Without
+		// it the proxy's deny list would refuse the module's fetch, which is the
+		// SSRF protection working, not a test failure.
+		AllowPrivateEgress: true,
 	})
 	if err != nil {
 		t.Fatalf("launch stremio: %v", err)

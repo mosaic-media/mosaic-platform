@@ -24,6 +24,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -41,6 +42,13 @@ type probeSettings struct {
 	// fixed: a tree import's cost is (calls per import) × (cost per call), and
 	// this is what lets the second be measured without the first being guessed.
 	Children int `json:"children"`
+
+	// FetchURL makes the probe issue an HTTP GET during Import, using an ordinary
+	// default-transport client — the shape a real module uses. It exists for the
+	// egress tests (ADR 0064): the fetch must go through the Platform's proxy, so
+	// a URL resolving to a private address is refused unless the operator override
+	// is on. The probe records the outcome in the import's returned counts.
+	FetchURL string `json:"fetch_url"`
 }
 
 // probe fills RoleSearch and nothing else. The registry resolves roles from the
@@ -89,6 +97,26 @@ func (probe) Import(ctx context.Context, svc v1.ContentService, req v1.ImportReq
 		_ = json.Unmarshal(req.Settings, &settings)
 	}
 
+	// An HTTP fetch through an ordinary client, for the egress tests. The result
+	// is signalled through the import: Parts=1 means the fetch succeeded (the
+	// proxy allowed it), Parts=0 means it failed (the proxy denied it or the host
+	// was unreachable). A test reads that rather than the bytes, since what is
+	// under test is whether the call was permitted, not what it returned.
+	fetchOK := 0
+	if settings.FetchURL != "" {
+		resp, err := http.Get(settings.FetchURL) //nolint:gosec,noctx // the URL is the test's; egress is what is under test.
+		if err == nil {
+			// A denied fetch does not error: for plain HTTP the proxy answers
+			// with a 403 rather than tunnelling, so err is nil and the status is
+			// what says whether the call was permitted. Only a real 2xx from the
+			// target counts as reaching it.
+			if resp.StatusCode < 400 {
+				fetchOK = 1
+			}
+			_ = resp.Body.Close()
+		}
+	}
+
 	for i := 0; i < settings.Children; i++ {
 		if _, err := svc.AddContentChild(ctx, v1.AddContentChildCommand{
 			Caller:       req.Caller,
@@ -102,7 +130,7 @@ func (probe) Import(ctx context.Context, svc v1.ContentService, req v1.ImportReq
 		}
 	}
 
-	return v1.ImportResult{WorkID: out.Work.ID, Items: 1 + settings.Children}, nil
+	return v1.ImportResult{WorkID: out.Work.ID, Items: 1 + settings.Children, Parts: fetchOK}, nil
 }
 
 // Search echoes its query back as one result. It exists so role dispatch is
