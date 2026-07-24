@@ -161,6 +161,30 @@ func (r *CapabilityRegistry) SearchProviders() []SearchProviderEntry {
 	return out
 }
 
+// StreamProviderEntry pairs a stream-capable module's id with its provider, so a
+// caller can read the module's settings before invoking it.
+type StreamProviderEntry struct {
+	ModuleID string
+	Provider v1.StreamProvider
+}
+
+// StreamProviders returns every registered capability that fills RoleStream, in
+// stable module-id order.
+//
+// It is the enumeration ADR 0073 needs: materialising asks *every* stream
+// provider for playable locations, not only the module that sourced the
+// metadata, because the two are different jobs and a metadata module fills no
+// stream role at all.
+func (r *CapabilityRegistry) StreamProviders() []StreamProviderEntry {
+	var out []StreamProviderEntry
+	for _, id := range r.sortedIDs() {
+		if p, ok := r.byID[id].(v1.StreamProvider); ok {
+			out = append(out, StreamProviderEntry{ModuleID: id, Provider: p})
+		}
+	}
+	return out
+}
+
 // CatalogProviderEntry pairs a catalog-capable module's id with its provider.
 type CatalogProviderEntry struct {
 	ModuleID string

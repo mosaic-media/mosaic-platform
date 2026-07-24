@@ -95,6 +95,18 @@ func (s *Service) ImportContent(ctx context.Context, cmd ImportContentCommand) (
 		return v1.ImportResult{}, err
 	}
 
+	// 6b. fill in what plays (ADR 0073). The capability the ref named built the
+	// tree; a metadata module fills no stream role, so without this a title
+	// described by TMDB or Cinemeta would sit in the library permanently
+	// unplayable while a stream source registered alongside it was never asked.
+	//
+	// Deliberately after the module's own span has ended and outside any error
+	// path: it is best-effort, and an import that produced a tree has succeeded
+	// whether or not anything could be found to play.
+	if result.WorkID != "" {
+		s.enrichStreams(ctx, cmd.Caller, result.WorkID, &result)
+	}
+
 	// 7. record that an import ran, for audit. The capability's own writes each
 	// emit their content events; this marks the invocation itself — so it is
 	// caused by the handler's span, not by the module span that has just ended.
