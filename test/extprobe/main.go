@@ -23,10 +23,22 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 
 	v1 "github.com/mosaic-media/sdk/contracts/platform/v1"
 	"github.com/mosaic-media/sdk/host"
 )
+
+// probeSettings is how a test asks the probe to do more work. It rides the
+// ordinary settings document (ADR 0021), which the Platform stores and hands
+// back uninterpreted — so using it here costs no special mechanism.
+type probeSettings struct {
+	// Children makes Import add this many child nodes after the work. It exists
+	// for the callback-cost measurement ADR 0064 requires before the protocol is
+	// fixed: a tree import's cost is (calls per import) × (cost per call), and
+	// this is what lets the second be measured without the first being guessed.
+	Children int `json:"children"`
+}
 
 // probe fills RoleSearch and nothing else. The registry resolves roles from the
 // manifest rather than by type assertion — a proxy satisfies every provider
@@ -63,7 +75,31 @@ func (probe) Import(ctx context.Context, svc v1.ContentService, req v1.ImportReq
 	if err != nil {
 		return v1.ImportResult{}, err
 	}
-	return v1.ImportResult{WorkID: out.Work.ID, Items: 1}, nil
+
+	// A tree import is many calls, not one. This is what makes the probe able
+	// to stand in for one — a season of episodes is exactly this shape.
+	var settings probeSettings
+	if len(req.Settings) > 0 {
+		// A settings document the module cannot parse is the user's, not an
+		// error to fail an import over: unknown or malformed fields mean the
+		// defaults, which is how every other module here treats them.
+		_ = json.Unmarshal(req.Settings, &settings)
+	}
+
+	for i := 0; i < settings.Children; i++ {
+		if _, err := svc.AddContentChild(ctx, v1.AddContentChildCommand{
+			Caller:       req.Caller,
+			ParentID:     out.Work.ID,
+			Kind:         v1.NodeItem,
+			ItemType:     v1.ItemEpisode,
+			Title:        "episode",
+			NaturalOrder: float64(i),
+		}); err != nil {
+			return v1.ImportResult{}, err
+		}
+	}
+
+	return v1.ImportResult{WorkID: out.Work.ID, Items: 1 + settings.Children}, nil
 }
 
 // Search echoes its query back as one result. It exists so role dispatch is
